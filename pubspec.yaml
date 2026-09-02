@@ -11,9 +11,11 @@ dependencies:
   flutter:
     sdk: flutter
 
+  utf_convert: ^0.10.0+1
   cupertino_icons: ^1.0.8
   sqflite: ^2.4.2
   path: ^1.9.1
+  file_picker: ^10.3.2
 
 dev_dependencies:
   flutter_test:

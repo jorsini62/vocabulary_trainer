@@ -11,10 +11,7 @@ class SQLiteStudySetRepository implements StudySetRepository {
   Future<int> insertStudySet(StudySet studySet) async {
     final db = await _databaseManager.database;
 
-    return await db.insert(
-      'StudySet',
-      _toMap(studySet),
-    );
+    return await db.insert('StudySet', _toMap(studySet));
   }
 
   @override
@@ -23,7 +20,7 @@ class SQLiteStudySetRepository implements StudySetRepository {
 
     final results = await db.query(
       'StudySet',
-      where: 'id = ?',
+      where: 'StudySetID = ?',
       whereArgs: [id],
       limit: 1,
     );
@@ -42,7 +39,7 @@ class SQLiteStudySetRepository implements StudySetRepository {
     await db.update(
       'StudySet',
       _toMap(studySet),
-      where: 'id = ?',
+      where: 'StudySetID = ?',
       whereArgs: [studySet.id],
     );
   }
@@ -51,11 +48,7 @@ class SQLiteStudySetRepository implements StudySetRepository {
   Future<void> deleteStudySet(int id) async {
     final db = await _databaseManager.database;
 
-    await db.delete(
-      'StudySet',
-      where: 'id = ?',
-      whereArgs: [id],
-    );
+    await db.delete('StudySet', where: 'StudySetID = ?', whereArgs: [id]);
   }
 
   @override
@@ -65,13 +58,10 @@ class SQLiteStudySetRepository implements StudySetRepository {
   ) async {
     final db = await _databaseManager.database;
 
-    await db.insert(
-      'StudySetMembership',
-      {
-        'studySetId': studySetId,
-        'vocabularyItemId': vocabularyItemId,
-      },
-    );
+    await db.insert('StudySetMembership', {
+      'StudySetID': studySetId,
+      'VocabularyItemID': vocabularyItemId,
+    });
   }
 
   @override
@@ -83,31 +73,169 @@ class SQLiteStudySetRepository implements StudySetRepository {
 
     await db.delete(
       'StudySetMembership',
-      where: 'studySetId = ? AND vocabularyItemId = ?',
-      whereArgs: [
-        studySetId,
-        vocabularyItemId,
-      ],
+      where: 'StudySetID = ? AND VocabularyItemID = ?',
+      whereArgs: [studySetId, vocabularyItemId],
     );
+  }
+
+  @override
+  Future<List<StudySet>> getStudySetsByLanguageCombinationId(
+    int languageCombinationId,
+  ) async {
+    final db = await _databaseManager.database;
+
+    final results = await db.query(
+      'StudySet',
+      where: 'LanguageCombinationID = ?',
+      whereArgs: [languageCombinationId],
+      orderBy: 'StudySetName COLLATE NOCASE',
+    );
+
+    return results.map(_fromMap).toList();
+  }
+
+  @override
+  Future<List<StudySet>> getAllStudySets() async {
+    final db = await _databaseManager.database;
+
+    final results = await db.query(
+      'StudySet',
+      orderBy: 'StudySetName COLLATE NOCASE',
+    );
+
+    return results.map(_fromMap).toList();
+  }
+
+
+  @override
+  Future<StudySet?> getDefaultStudySet(int languageCombinationId) async {
+    final db = await _databaseManager.database;
+
+    final results = await db.query(
+      'StudySet',
+      where: 'LanguageCombinationID = ? AND IsDefaultStudySet = 1',
+      whereArgs: [languageCombinationId],
+      limit: 1,
+    );
+
+    if (results.isEmpty) {
+      return null;
+    }
+
+    return _fromMap(results.first);
+  }
+
+
+  @override
+  Future<List<int>> getVocabularyItemIdsForStudySet(int studySetId) async {
+    final db = await _databaseManager.database;
+
+    final rows = await db.query(
+      'StudySetMembership',
+      columns: ['VocabularyItemID'],
+      where: 'StudySetID = ?',
+      whereArgs: [studySetId],
+      orderBy: 'VocabularyItemID',
+    );
+
+    return rows
+        .map((row) => row['VocabularyItemID'])
+        .whereType<int>()
+        .toList();
+  }
+
+  @override
+  Future<Set<int>> getStudySetIdsForVocabularyItem(int vocabularyItemId) async {
+    final db = await _databaseManager.database;
+
+    final rows = await db.query(
+      'StudySetMembership',
+      columns: ['StudySetID'],
+      where: 'VocabularyItemID = ?',
+      whereArgs: [vocabularyItemId],
+      orderBy: 'StudySetID',
+    );
+
+    return rows
+        .map((row) => row['StudySetID'])
+        .whereType<int>()
+        .toSet();
+  }
+
+  @override
+  Future<Map<String, int>> getStudySetStatistics(int studySetId) async {
+    final db = await _databaseManager.database;
+
+    final rows = await db.rawQuery(
+      "SELECT v.LearningState, v.LearningTimestamp "
+      "FROM StudySetMembership m "
+      "INNER JOIN VocabularyItem v "
+      "ON v.VocabularyItemID = m.VocabularyItemID "
+      "WHERE m.StudySetID = ?",
+      [studySetId],
+    );
+
+    int vocabularyItems = rows.length;
+    int activeItems = 0;
+    int waitingItems = 0;
+    int deferredItems = 0;
+    int masteredItems = 0;
+
+    final now = DateTime.now().millisecondsSinceEpoch;
+
+    for (final row in rows) {
+      final state = row['LearningState']?.toString();
+      final timestamp = row['LearningTimestamp'] as int?;
+
+      if (state == 'deferred') {
+        deferredItems++;
+        continue;
+      }
+
+      if (state == 'mastered') {
+        masteredItems++;
+        continue;
+      }
+
+      if (timestamp != null && timestamp > now) {
+        waitingItems++;
+      } else {
+        activeItems++;
+      }
+    }
+
+    return {
+      'vocabularyItems': vocabularyItems,
+      'activeItems': activeItems,
+      'waitingItems': waitingItems,
+      'deferredItems': deferredItems,
+      'masteredItems': masteredItems,
+    };
   }
 
   Map<String, Object?> _toMap(StudySet studySet) {
     return {
-  'id': studySet.id,
-  'sourceLanguage': studySet.sourceLanguage,
-  'targetLanguage': studySet.targetLanguage,
-  'name': studySet.name,
-  'learningWindowSize': studySet.learningWindowSize,
-};
+      'StudySetID': studySet.id,
+      'LanguageCombinationID': studySet.languageCombinationId,
+      'StudySetName': studySet.name,
+      'StandardLearningWindowSize': studySet.standardLearningWindowSize,
+      'IntenseLearningWindowSize': studySet.intenseLearningWindowSize,
+      'MinimumInterval': studySet.minimumInterval,
+      'IsDefaultStudySet': studySet.isDefaultStudySet ? 1 : 0,
+    };
   }
 
   StudySet _fromMap(Map<String, Object?> map) {
-    return StudySet(
-  id: map['id'] as int?,
-  sourceLanguage: map['sourceLanguage'] as String,
-  targetLanguage: map['targetLanguage'] as String,
-  name: map['name'] as String,
-  learningWindowSize: map['learningWindowSize'] as int,
-);
-  }
+  print(map);
+
+  return StudySet(
+    id: map['StudySetID'] as int?,
+    languageCombinationId: map['LanguageCombinationID'] as int,
+    name: map['StudySetName'] as String,
+    standardLearningWindowSize: map['StandardLearningWindowSize'] as int,
+    intenseLearningWindowSize: map['IntenseLearningWindowSize'] as int,
+    minimumInterval: map['MinimumInterval'] as int,
+    isDefaultStudySet: (map['IsDefaultStudySet'] as int) != 0,
+  );
+}
 }

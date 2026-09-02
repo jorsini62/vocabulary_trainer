@@ -1,35 +1,50 @@
 class StudySet {
   final int? id;
 
-  final String sourceLanguage;
-  final String targetLanguage;
+  final int languageCombinationId;
 
   final String name;
 
-  final int learningWindowSize;
+  final int standardLearningWindowSize;
+
+  final int intenseLearningWindowSize;
+
+  final int minimumInterval;
+
+  final bool isDefaultStudySet;
 
   const StudySet({
-  this.id,
-  required this.sourceLanguage,
-  required this.targetLanguage,
-  required this.name,
-  required this.learningWindowSize,
-});
+    this.id,
+    required this.languageCombinationId,
+    required this.name,
+    required this.standardLearningWindowSize,
+    required this.intenseLearningWindowSize,
+    required this.minimumInterval,
+    required this.isDefaultStudySet,
+  });
 
   StudySet copyWith({
-  int? id,
-  String? sourceLanguage,
-  String? targetLanguage,
-  String? name,
-  int? learningWindowSize,
-}) {
-  return StudySet(
-    id: id ?? this.id,
-    sourceLanguage: sourceLanguage ?? this.sourceLanguage,
-    targetLanguage: targetLanguage ?? this.targetLanguage,
-    name: name ?? this.name,
-    learningWindowSize:
-        learningWindowSize ?? this.learningWindowSize,
-  );
-}
+    int? id,
+    int? languageCombinationId,
+    String? name,
+    int? standardLearningWindowSize,
+    int? intenseLearningWindowSize,
+    int? minimumInterval,
+    bool? isDefaultStudySet,
+  }) {
+    return StudySet(
+      id: id ?? this.id,
+      languageCombinationId:
+          languageCombinationId ?? this.languageCombinationId,
+      name: name ?? this.name,
+      standardLearningWindowSize:
+          standardLearningWindowSize ?? this.standardLearningWindowSize,
+
+      intenseLearningWindowSize:
+          intenseLearningWindowSize ?? this.intenseLearningWindowSize,
+
+      minimumInterval: minimumInterval ?? this.minimumInterval,
+      isDefaultStudySet: isDefaultStudySet ?? this.isDefaultStudySet,
+    );
+  }
 }

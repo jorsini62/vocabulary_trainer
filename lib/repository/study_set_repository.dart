@@ -19,5 +19,15 @@ Future<void> removeVocabularyItemFromStudySet(
   int studySetId,
 );
 
+Future<List<StudySet>> getStudySetsByLanguageCombinationId(
+  int languageCombinationId,
+);
+
 Future<List<StudySet>> getAllStudySets();
+
+Future<StudySet?> getDefaultStudySet(
+  int languageCombinationId,
+);
+
+Future<Map<String, int>> getStudySetStatistics(int studySetId);
 }
