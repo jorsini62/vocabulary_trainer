@@ -141,7 +141,16 @@ class _TransferImportCenterScreenState
     await _loadContext();
   }
 
-  Future<void> _openImportStudySet() async {
+  Future<void> _openImportStudySetTransfer() async {
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => const TransferScreen(mode: TransferScreenMode.studySetImport),
+      ),
+    );
+    await _loadContext();
+  }
+
+  Future<void> _openImportVocabulary() async {
     await Navigator.of(context).push(
       MaterialPageRoute<void>(
         builder: (_) => const VocabularyImportScreen(),
@@ -255,8 +264,17 @@ class _TransferImportCenterScreenState
                 _OperationButton(
                   label: 'Import Study Set',
                   description:
-                      'Import vocabulary into the selected Study Set using the existing vocabulary-import workflow.',
-                  onPressed: hasStudySetContext ? _openImportStudySet : null,
+                      'Import a Study Set Transfer file into the selected Study Set.',
+                  onPressed: hasStudySetContext
+                      ? _openImportStudySetTransfer
+                      : null,
+                ),
+                const SizedBox(height: 10),
+                _OperationButton(
+                  label: 'Import Vocabulary',
+                  description:
+                      'Import vocabulary from a CSV file into the selected Study Set.',
+                  onPressed: hasStudySetContext ? _openImportVocabulary : null,
                 ),
               ],
             ),

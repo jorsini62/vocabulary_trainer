@@ -43,49 +43,66 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   Future<void> _loadLanguageCombinations() async {
     final combinations = await _repository.getAll();
-
     final allStudySets = await _studySetRepository.getAllStudySets();
-
     final configuration = await _configurationRepository.getConfiguration();
 
-    if (!mounted) return;
-
     LanguageCombination? selected;
-
-    List<StudySet> studySets = [];
-
-    if (configuration != null) {
+    if (configuration?.currentLanguagePairId != null) {
       for (final combination in combinations) {
-        if (combination.id == configuration.currentLanguagePairId) {
+        if (combination.id == configuration!.currentLanguagePairId) {
           selected = combination;
           break;
         }
       }
     }
 
-    // Preserve the configured current Language Pair when it is valid. If
-    // there is no valid configured pair, fall back to the first available
-    // Language Pair so existing pairs remain selectable on the Learning
-    // Center even when no current pair has been persisted yet.
     selected ??= combinations.isNotEmpty ? combinations.first : null;
 
-    if (selected != null) {
-      studySets = allStudySets
-          .where((studySet) => studySet.languageCombinationId == selected!.id)
-          .toList();
+    final studySets = selected == null
+        ? <StudySet>[]
+        : allStudySets
+            .where((studySet) => studySet.languageCombinationId == selected!.id)
+            .toList();
+
+    StudySet? selectedStudySet;
+    if (configuration?.currentStudySetId != null) {
+      for (final studySet in studySets) {
+        if (studySet.id == configuration!.currentStudySetId) {
+          selectedStudySet = studySet;
+          break;
+        }
+      }
     }
+
+    selectedStudySet ??= studySets.isEmpty
+        ? null
+        : studySets.firstWhere(
+            (studySet) => studySet.isDefaultStudySet,
+            orElse: () => studySets.first,
+          );
+
+    if (!mounted) return;
 
     setState(() {
       _languageCombinations = combinations;
       _selectedLanguageCombination = selected;
       _studySets = studySets;
-      _selectedStudySet = studySets.isEmpty
-          ? null
-          : studySets.firstWhere(
-              (studySet) => studySet.id == configuration?.currentStudySetId,
-              orElse: () => studySets.first,
-            );
+      _selectedStudySet = selectedStudySet;
     });
+
+    final contextLanguagePairId = selected?.id;
+    final contextStudySetId = selectedStudySet?.id;
+    if (contextLanguagePairId != configuration?.currentLanguagePairId ||
+        contextStudySetId != configuration?.currentStudySetId) {
+      await _configurationRepository.saveConfiguration(
+        Configuration(
+          id: configuration?.id ?? 1,
+          currentLanguagePairId: contextLanguagePairId,
+          currentStudySetId: contextStudySetId,
+        ),
+      );
+    }
+
     await _refreshLearningAvailability();
   }
 
@@ -173,19 +190,36 @@ class _DashboardScreenState extends State<DashboardScreen> {
                         onChanged: (value) async {
                           if (value == null) return;
 
+                        final allStudySets =
+                            await _studySetRepository.getAllStudySets();
+                        final studySets = allStudySets
+                            .where((studySet) =>
+                                studySet.languageCombinationId == value.id)
+                            .toList();
+
+                        final selectedStudySet = studySets.isEmpty
+                            ? null
+                            : studySets.firstWhere(
+                                (studySet) => studySet.isDefaultStudySet,
+                                orElse: () => studySets.first,
+                              );
+
                         setState(() {
                           _selectedLanguageCombination = value;
-                          });
+                          _studySets = studySets;
+                          _selectedStudySet = selectedStudySet;
+                        });
 
+                        final configuration =
+                            await _configurationRepository.getConfiguration();
                         await _configurationRepository.saveConfiguration(
                           Configuration(
-                            id: 1,
+                            id: configuration?.id ?? 1,
                             currentLanguagePairId: value.id,
-                            currentStudySetId: null,
+                            currentStudySetId: selectedStudySet?.id,
                           ),
                         );
-
-                          await _loadLanguageCombinations();
+                        await _refreshLearningAvailability();
                         },
                       ),
                     ),
@@ -212,7 +246,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                             value: studySet,
                             child: Text(
                               studySet.isDefaultStudySet
-                                  ? '★ Repository'
+                                  ? '★ ${studySet.name}'
                                   : studySet.name,
                             ),
                           );
@@ -245,6 +279,16 @@ class _DashboardScreenState extends State<DashboardScreen> {
                     const SizedBox(height: 12),
 
                     const SizedBox(height: 24),
+
+                    if (_selectedStudySet != null && !_learningAvailable) ...[
+                      const SizedBox(height: 8),
+                      const Text(
+                        'The selected Study Set contains no Vocabulary Items.\n'
+                        'Please import or create Vocabulary Items before beginning a Learning Session.',
+                        style: TextStyle(fontSize: 13),
+                      ),
+                      const SizedBox(height: 8),
+                    ],
 
                     Wrap(
                       spacing: 12,
@@ -345,7 +389,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                           ),
                         ),
                         SizedBox(
-                          width: 150,
+                          width: 180,
                           child: OutlinedButton(
                             onPressed: () async {
                               await Navigator.push(
@@ -359,9 +403,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
                               await _loadLanguageCombinations();
                             },
                             child: const FittedBox(
-                            fit: BoxFit.scaleDown,
-                            child: Text('Transfer & Import', maxLines: 1),
-                          ),
+                              fit: BoxFit.scaleDown,
+                              child: Text('Transfer & Import', maxLines: 1),
+                            ),
                           ),
                         ),
                         SizedBox(

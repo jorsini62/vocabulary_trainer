@@ -18,6 +18,7 @@ enum TransferScreenMode {
   databaseExport,
   databaseImport,
   studySetExport,
+  studySetImport,
 }
 
 class TransferScreen extends StatefulWidget {
@@ -210,12 +211,18 @@ class _TransferScreenState extends State<TransferScreen> {
       }
 
       if (!mounted) return;
+      final currentTarget = _selectedStudySet;
+      final preservedTarget = currentTarget != null &&
+              currentTarget.languageCombinationId == pair.id &&
+              targetStudySets.any((set) => set.id == currentTarget.id)
+          ? targetStudySets.firstWhere((set) => set.id == currentTarget.id)
+          : targetStudySets.first;
       setState(() {
         _selectedImportFileName = filePath.split('/').last;
         _selectedImportFilePath = filePath;
         _importLanguagePair = pair;
         _importTargetStudySets = targetStudySets;
-        _importTargetStudySet = targetStudySets.first;
+        _importTargetStudySet = preservedTarget;
       });
     } on Exception catch (e) {
       await _showMessage(_friendlyExceptionMessage(e));
@@ -514,7 +521,17 @@ class _TransferScreenState extends State<TransferScreen> {
     final importPair = _importLanguagePair;
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Transfer')),
+      appBar: AppBar(
+        title: Text(
+          switch (widget.mode) {
+            TransferScreenMode.studySetExport => 'Transfer Study Set',
+            TransferScreenMode.studySetImport => 'Import Study Set',
+            TransferScreenMode.databaseExport => 'Transfer Database',
+            TransferScreenMode.databaseImport => 'Import Database',
+            TransferScreenMode.all => 'Transfer & Import',
+          },
+        ),
+      ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(16),
         child: Center(
@@ -524,14 +541,19 @@ class _TransferScreenState extends State<TransferScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 if (widget.mode == TransferScreenMode.all ||
-                    widget.mode == TransferScreenMode.studySetExport) ...[
-                  const Text(
-                    'Transfer Study Set',
-                    style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                    widget.mode == TransferScreenMode.studySetExport ||
+                    widget.mode == TransferScreenMode.studySetImport) ...[
+                  Text(
+                    widget.mode == TransferScreenMode.studySetImport
+                        ? 'Import Study Set'
+                        : 'Transfer Study Set',
+                    style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
                   ),
                   const SizedBox(height: 6),
-                  const Text(
-                    'Move one Study Set to another installation. Other Study Set memberships are not transferred.',
+                  Text(
+                    widget.mode == TransferScreenMode.studySetImport
+                        ? 'Import selected study set transfer file into target study set of this installation.'
+                        : 'Move one Study Set to another installation. Other Study Set memberships are not transferred.',
                   ),
                   const SizedBox(height: 16),
                   DropdownButtonFormField<LanguageCombination>(
@@ -551,9 +573,11 @@ class _TransferScreenState extends State<TransferScreen> {
                   const SizedBox(height: 12),
                   DropdownButtonFormField<StudySet>(
                     value: _selectedStudySet,
-                    decoration: const InputDecoration(
-                      labelText: 'Study Set to Export',
-                      border: OutlineInputBorder(),
+                    decoration: InputDecoration(
+                      labelText: widget.mode == TransferScreenMode.studySetImport
+                          ? 'Current Study Set'
+                          : 'Study Set to Export',
+                      border: const OutlineInputBorder(),
                     ),
                     items: _studySets.map((studySet) {
                       return DropdownMenuItem(
@@ -561,20 +585,76 @@ class _TransferScreenState extends State<TransferScreen> {
                         child: Text(studySet.isDefaultStudySet ? '★ ${studySet.name}' : studySet.name),
                       );
                     }).toList(),
-                    onChanged: _busy ? null : (value) => setState(() => _selectedStudySet = value),
+                    onChanged: _busy
+                        ? null
+                        : (value) async {
+                            if (value == null) return;
+                            await _configurationRepository.saveConfiguration(
+                              Configuration(
+                                id: 1,
+                                currentLanguagePairId: _selectedLanguagePair?.id,
+                                currentStudySetId: value.id,
+                              ),
+                            );
+                            if (!mounted) return;
+                            setState(() => _selectedStudySet = value);
+                          },
                   ),
                   const SizedBox(height: 12),
-                  FilledButton(
-                    onPressed: _busy ? null : _exportStudySet,
-                    child: const Text('Transfer Study Set'),
-                  ),
+                  if (widget.mode == TransferScreenMode.studySetImport) ...[
+                    FilledButton(
+                      onPressed: _busy ? null : _chooseStudySetImportFile,
+                      child: const Text('Select Study Set Transfer File'),
+                    ),
+                    if (_selectedImportFileName != null) ...[
+                      const SizedBox(height: 10),
+                      Text('Selected file: $_selectedImportFileName'),
+                      const SizedBox(height: 10),
+                      Text(
+                        importPair == null
+                            ? ''
+                            : 'Import Language Pair: ${importPair.sourceLanguage} → ${importPair.targetLanguage}',
+                      ),
+                      const SizedBox(height: 10),
+                      DropdownButtonFormField<StudySet>(
+                        value: _importTargetStudySet,
+                        decoration: const InputDecoration(
+                          labelText: 'Target Study Set',
+                          border: OutlineInputBorder(),
+                        ),
+                        items: _importTargetStudySets.map((studySet) {
+                          return DropdownMenuItem(
+                            value: studySet,
+                            child: Text(
+                              studySet.isDefaultStudySet
+                                  ? '★ ${studySet.name}'
+                                  : studySet.name,
+                            ),
+                          );
+                        }).toList(),
+                        onChanged: _busy
+                            ? null
+                            : (value) => setState(() => _importTargetStudySet = value),
+                      ),
+                      const SizedBox(height: 10),
+                      FilledButton(
+                        onPressed: _busy ? null : _importStudySet,
+                        child: const Text('Import Study Set'),
+                      ),
+                    ],
+                  ] else ...[
+                    FilledButton(
+                      onPressed: _busy ? null : _exportStudySet,
+                      child: const Text('Transfer Study Set'),
+                    ),
+                  ],
                 ],
                 if (widget.mode == TransferScreenMode.all) ...[
                   const SizedBox(height: 12),
                   if (_selectedImportFileName != null) ...[
                     Text('Selected file: $_selectedImportFileName'),
                     const SizedBox(height: 8),
-                    Text(importPair == null ? '' : 'Transfer Language Pair: ${importPair.sourceLanguage} → ${importPair.targetLanguage}'),
+                    Text(importPair == null ? '' : 'Import Language Pair: ${importPair.sourceLanguage} → ${importPair.targetLanguage}'),
                     const SizedBox(height: 8),
                     DropdownButtonFormField<StudySet>(
                       value: _importTargetStudySet,

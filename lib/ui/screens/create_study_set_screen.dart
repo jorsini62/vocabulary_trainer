@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../domain/language_combination.dart';
+import '../../domain/configuration.dart';
 import '../../domain/study_set.dart';
 
 import '../../repository/sqlite_configuration_repository.dart';
@@ -63,19 +64,19 @@ class _CreateStudySetScreenState extends State<CreateStudySetScreen> {
 
   Future<void> _loadLanguagePairs() async {
     final languagePairs = await _languageCombinationRepository.getAll();
-
     final configuration = await _configurationRepository.getConfiguration();
 
     LanguageCombination? selected;
-
-    if (configuration != null) {
+    if (configuration?.currentLanguagePairId != null) {
       for (final pair in languagePairs) {
-        if (pair.id == configuration.currentLanguagePairId) {
+        if (pair.id == configuration!.currentLanguagePairId) {
           selected = pair;
           break;
         }
       }
     }
+
+    selected ??= languagePairs.isNotEmpty ? languagePairs.first : null;
 
     if (!mounted) return;
 
@@ -83,6 +84,17 @@ class _CreateStudySetScreenState extends State<CreateStudySetScreen> {
       _languagePairs = languagePairs;
       _selectedLanguagePair = selected;
     });
+
+    if (selected != null &&
+        selected.id != configuration?.currentLanguagePairId) {
+      await _configurationRepository.saveConfiguration(
+        Configuration(
+          id: configuration?.id ?? 1,
+          currentLanguagePairId: selected.id,
+          currentStudySetId: null,
+        ),
+      );
+    }
 
     await _loadStudySets();
   }
@@ -100,22 +112,51 @@ class _CreateStudySetScreenState extends State<CreateStudySetScreen> {
         _deferredItemsCount = null;
         _masteredItemsCount = null;
       });
-
       return;
     }
 
-    final studySets = await _studySetRepository
-        .getStudySetsByLanguageCombinationId(_selectedLanguagePair!.id!);
+    final allStudySets = await _studySetRepository.getAllStudySets();
+    final studySets = allStudySets
+        .where((studySet) =>
+            studySet.languageCombinationId == _selectedLanguagePair!.id)
+        .toList();
+
+    final configuration = await _configurationRepository.getConfiguration();
+
+    StudySet? selectedStudySet;
+    if (configuration?.currentStudySetId != null) {
+      for (final studySet in studySets) {
+        if (studySet.id == configuration!.currentStudySetId) {
+          selectedStudySet = studySet;
+          break;
+        }
+      }
+    }
+
+    selectedStudySet ??= studySets.isEmpty
+        ? null
+        : studySets.firstWhere(
+            (studySet) => studySet.isDefaultStudySet,
+            orElse: () => studySets.first,
+          );
 
     if (!mounted) return;
 
     setState(() {
       _studySets = studySets;
-
-      _selectedStudySet = studySets.isEmpty ? null : studySets.first;
-
+      _selectedStudySet = selectedStudySet;
       _isCreatingNewStudySet = false;
     });
+
+    if (selectedStudySet != null) {
+      await _configurationRepository.saveConfiguration(
+        Configuration(
+          id: configuration?.id ?? 1,
+          currentLanguagePairId: _selectedLanguagePair!.id,
+          currentStudySetId: selectedStudySet.id,
+        ),
+      );
+    }
 
     _populateControllers();
     await _loadStudySetStatistics();
@@ -200,9 +241,23 @@ class _CreateStudySetScreenState extends State<CreateStudySetScreen> {
                 languagePairs: _languagePairs,
                 selectedLanguagePair: _selectedLanguagePair,
                 onChanged: (value) async {
+                  if (value == null) return;
+
                   setState(() {
                     _selectedLanguagePair = value;
+                    _selectedStudySet = null;
                   });
+
+                  final configuration =
+                      await _configurationRepository.getConfiguration();
+
+                  await _configurationRepository.saveConfiguration(
+                    Configuration(
+                      id: configuration?.id ?? 1,
+                      currentLanguagePairId: value.id,
+                      currentStudySetId: null,
+                    ),
+                  );
 
                   await _loadStudySets();
                 },
@@ -220,6 +275,17 @@ class _CreateStudySetScreenState extends State<CreateStudySetScreen> {
                     _selectedStudySet = value;
                     _isCreatingNewStudySet = false;
                   });
+
+                  final configuration =
+                      await _configurationRepository.getConfiguration();
+
+                  await _configurationRepository.saveConfiguration(
+                    Configuration(
+                      id: configuration?.id ?? 1,
+                      currentLanguagePairId: _selectedLanguagePair?.id,
+                      currentStudySetId: value.id,
+                    ),
+                  );
 
                   _populateControllers();
                   await _loadStudySetStatistics();
@@ -420,10 +486,25 @@ class _CreateStudySetScreenState extends State<CreateStudySetScreen> {
 
     if (!mounted) return;
 
+    final createdStudySet = _studySets.firstWhere(
+      (studySet) => studySet.id == newId,
+    );
+
+    // Creating a Study Set must also change the persistent application
+    // context. _loadStudySets() restores the previously persisted context,
+    // so the new Study Set has to be written to Configuration after it has
+    // been created and selected.
+    final configuration = await _configurationRepository.getConfiguration();
+    await _configurationRepository.saveConfiguration(
+      Configuration(
+        id: configuration?.id ?? 1,
+        currentLanguagePairId: _selectedLanguagePair?.id,
+        currentStudySetId: createdStudySet.id,
+      ),
+    );
+
     setState(() {
-      _selectedStudySet = _studySets.firstWhere(
-        (studySet) => studySet.id == newId,
-      );
+      _selectedStudySet = createdStudySet;
     });
 
     _populateControllers();

@@ -66,6 +66,15 @@ class _VocabularyManagementScreenState
 
   int get _selectionCount => _selectedVocabularyItemIds.length;
 
+  String _defaultStudySetLabel() {
+    for (final studySet in _studySets) {
+      if (studySet.isDefaultStudySet) {
+        return '★ ${studySet.name}';
+      }
+    }
+    return '★ Repository';
+  }
+
   bool _isSelected(int? vocabularyItemId) {
     return vocabularyItemId != null &&
         _selectedVocabularyItemIds.contains(vocabularyItemId);
@@ -406,8 +415,8 @@ class _VocabularyManagementScreenState
                     alignment: Alignment.centerLeft,
                     child: Text(
                       currentStudySet == null
-                          ? 'Study Set: Repository'
-                          : 'Study Set: ${currentStudySet.isDefaultStudySet ? 'Repository' : currentStudySet.name}',
+                          ? 'Study Set: ${_defaultStudySetLabel()}'
+                          : 'Study Set: ${currentStudySet.isDefaultStudySet ? '★ ${currentStudySet.name}' : currentStudySet.name}',
                     ),
                   ),
                   if (currentStudySet != null && !currentStudySet.isDefaultStudySet)
@@ -628,12 +637,12 @@ class _VocabularyManagementScreenState
                     ),
                   ),
                 ),
-                const Expanded(
+                Expanded(
                   child: Center(
                     child: Text(
-                      'Repository',
+                      _defaultStudySetLabel(),
                       overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
+                      style: const TextStyle(
                         fontWeight: FontWeight.bold,
                         fontSize: _headerFontSize,
                       ),
@@ -930,7 +939,7 @@ class _VocabularyManagementScreenState
                           value: studySet.id!,
                           child: Text(
                             studySet.isDefaultStudySet
-                                ? 'Repository'
+                                ? '★ ${studySet.name}'
                                 : studySet.name,
                           ),
                         );

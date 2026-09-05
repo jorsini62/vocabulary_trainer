@@ -48,7 +48,34 @@ class SQLiteStudySetRepository implements StudySetRepository {
   Future<void> deleteStudySet(int id) async {
     final db = await _databaseManager.database;
 
-    await db.delete('StudySet', where: 'StudySetID = ?', whereArgs: [id]);
+    // Configuration.CurrentStudySetID has a foreign-key reference to StudySet.
+    // Clear the current context first so the selected Study Set can actually
+    // be deleted. The caller will then select and persist the default Study Set
+    // (Repository) as the new current context.
+    await db.transaction((txn) async {
+      await txn.update(
+        'Configuration',
+        {'CurrentStudySetID': null},
+        where: 'CurrentStudySetID = ?',
+        whereArgs: [id],
+      );
+
+      await txn.delete(
+        'StudySetMembership',
+        where: 'StudySetID = ?',
+        whereArgs: [id],
+      );
+
+      final deletedCount = await txn.delete(
+        'StudySet',
+        where: 'StudySetID = ?',
+        whereArgs: [id],
+      );
+
+      if (deletedCount != 1) {
+        throw StateError('Study Set could not be deleted.');
+      }
+    });
   }
 
   @override

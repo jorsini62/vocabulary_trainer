@@ -40,7 +40,7 @@ class ImportStudySetSelector extends StatelessWidget {
                 value: studySet,
                 child: Text(
                   studySet.isDefaultStudySet
-                      ? 'Repository'
+                      ? '★ ${studySet.name}'
                       : studySet.name,
                 ),
               );

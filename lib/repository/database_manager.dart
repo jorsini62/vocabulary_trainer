@@ -9,7 +9,7 @@ class DatabaseManager {
   static Database? _database;
 
   static const String _databaseName = 'vocabulary_trainer.db';
-  static const int _databaseVersion = 4;
+  static const int _databaseVersion = 5;
 
   Future<Database> get database async {
     if (_database != null) {
@@ -22,10 +22,7 @@ class DatabaseManager {
 
   Future<Database> _openDatabase() async {
     final databasesPath = await getDatabasesPath();
-
     final path = join(databasesPath, _databaseName);
-
-print('DATABASE PATH: $path');
 
     return openDatabase(
       path,
@@ -38,7 +35,6 @@ print('DATABASE PATH: $path');
 
   Future<void> deleteDevelopmentDatabase() async {
     final databasesPath = await getDatabasesPath();
-
     final path = join(databasesPath, _databaseName);
 
     await deleteDatabase(path);
@@ -49,18 +45,48 @@ print('DATABASE PATH: $path');
     await db.execute('PRAGMA foreign_keys = ON;');
   }
 
-  Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
-    // Version 1 requires no schema migration.
+  Future<void> _onUpgrade(
+    Database db,
+    int oldVersion,
+    int newVersion,
+  ) async {
+    if (oldVersion < 5) {
+      final columns = await db.rawQuery('PRAGMA table_info(Configuration)');
+      final hasCurrentStudySetId = columns.any(
+        (column) => column['name'] == 'CurrentStudySetID',
+      );
+
+      if (!hasCurrentStudySetId) {
+        await db.execute('''
+ALTER TABLE Configuration
+ADD COLUMN CurrentStudySetID INTEGER
+REFERENCES StudySet (StudySetID)
+''');
+      }
+
+      // Existing installations used CurrentLanguagePairID as the stored
+      // context. Initialize the new Study Set context from that pair's
+      // Repository Study Set, or its first Study Set if no Repository exists.
+      await db.execute('''
+UPDATE Configuration
+SET CurrentStudySetID = (
+  SELECT s.StudySetID
+  FROM StudySet s
+  WHERE s.LanguageCombinationID = Configuration.CurrentLanguagePairID
+  ORDER BY s.IsDefaultStudySet DESC, s.StudySetID ASC
+  LIMIT 1
+)
+WHERE CurrentStudySetID IS NULL
+''');
+    }
   }
 
   Future<void> _onCreate(Database db, int version) async {
     await db.execute('''
 CREATE TABLE LanguageCombination (
     LanguageCombinationID INTEGER PRIMARY KEY AUTOINCREMENT,
-
     SourceLanguage TEXT NOT NULL,
     TargetLanguage TEXT NOT NULL,
-
     UNIQUE (
         SourceLanguage,
         TargetLanguage
@@ -79,23 +105,15 @@ ON LanguageCombination (
     await db.execute('''
 CREATE TABLE VocabularyItem (
     VocabularyItemID INTEGER PRIMARY KEY AUTOINCREMENT,
-
     LanguageCombinationID INTEGER NOT NULL,
-
     SourceExpression TEXT NOT NULL,
-
     NormalizedSourceExpression TEXT NOT NULL,
-
     TargetExpression TEXT NOT NULL,
-
     LearningState TEXT NOT NULL,
-
     LearningTimestamp INTEGER,
-
     FOREIGN KEY (LanguageCombinationID)
         REFERENCES LanguageCombination (LanguageCombinationID)
         ON DELETE CASCADE,
-
     UNIQUE (
         LanguageCombinationID,
         NormalizedSourceExpression
@@ -106,22 +124,15 @@ CREATE TABLE VocabularyItem (
     await db.execute('''
 CREATE TABLE StudySet (
     StudySetID INTEGER PRIMARY KEY AUTOINCREMENT,
-
     LanguageCombinationID INTEGER NOT NULL,
-
     StudySetName TEXT NOT NULL,
-
     StandardLearningWindowSize INTEGER NOT NULL,
-
-IntenseLearningWindowSize INTEGER NOT NULL,
-
-MinimumInterval INTEGER NOT NULL,
+    IntenseLearningWindowSize INTEGER NOT NULL,
+    MinimumInterval INTEGER NOT NULL,
     IsDefaultStudySet INTEGER NOT NULL DEFAULT 0,
-
     FOREIGN KEY (LanguageCombinationID)
         REFERENCES LanguageCombination (LanguageCombinationID)
         ON DELETE CASCADE,
-
     UNIQUE (
         LanguageCombinationID,
         StudySetName
@@ -133,16 +144,13 @@ MinimumInterval INTEGER NOT NULL,
 CREATE TABLE StudySetMembership (
     VocabularyItemID INTEGER NOT NULL,
     StudySetID INTEGER NOT NULL,
-
     PRIMARY KEY (
         VocabularyItemID,
         StudySetID
     ),
-
     FOREIGN KEY (VocabularyItemID)
         REFERENCES VocabularyItem (VocabularyItemID)
         ON DELETE CASCADE,
-
     FOREIGN KEY (StudySetID)
         REFERENCES StudySet (StudySetID)
         ON DELETE CASCADE
@@ -153,14 +161,10 @@ CREATE TABLE StudySetMembership (
 CREATE TABLE Configuration (
     ConfigurationID INTEGER PRIMARY KEY
         CHECK (ConfigurationID = 1),
-
     CurrentLanguagePairID INTEGER,
-
     CurrentStudySetID INTEGER,
-
     FOREIGN KEY (CurrentLanguagePairID)
         REFERENCES LanguageCombination (LanguageCombinationID),
-
     FOREIGN KEY (CurrentStudySetID)
         REFERENCES StudySet (StudySetID)
 )
@@ -196,11 +200,9 @@ ON StudySetMembership (
 )
 ''');
 
-    // A brand-new database starts without a placeholder Language Pair.
-    // The first real Language Pair created by the user will receive its own
-    // LanguageCombinationID and its Repository Study Set. Keeping the
-    // bootstrap state empty prevents an artificial blank Language Pair from
-    // later becoming the parent of learner data.
+    // New databases start with no artificial Language Pair or Repository.
+    // The first real Language Pair created by the user establishes its own
+    // Repository Study Set.
     await db.insert('Configuration', {
       'ConfigurationID': 1,
       'CurrentLanguagePairID': null,

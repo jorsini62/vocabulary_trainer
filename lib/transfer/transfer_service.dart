@@ -102,28 +102,17 @@ class TransferService {
   Future<void> exportEverything({required String filePath}) async {
     final db = await _databaseManager.database;
 
-    final allLanguageRows = await db.query(
+    // A Database Transfer represents the complete environment. Include all
+    // Language Pairs and all Study Sets; there is no longer a special
+    // bootstrap Language Pair/Study Set to exclude.
+    final languageRows = await db.query(
       'LanguageCombination',
       orderBy: 'LanguageCombinationID',
     );
-    final languageRows = allLanguageRows
-        .where((row) => !(row['SourceLanguage'] == '' && row['TargetLanguage'] == ''))
-        .toList(growable: false);
-    final allStudySetRows = await db.query(
+    final studySetRows = await db.query(
       'StudySet',
       orderBy: 'StudySetID',
     );
-    final studySetRows = allStudySetRows.where((row) {
-      final name = row['StudySetName'];
-      final isDefault = row['IsDefaultStudySet'];
-      final pairId = row['LanguageCombinationID'];
-      final bootstrapPair = allLanguageRows.any((pair) =>
-          pair['LanguageCombinationID'] == pairId &&
-          pair['SourceLanguage'] == '' &&
-          pair['TargetLanguage'] == '');
-      return !(bootstrapPair && isDefault == 1 &&
-          (name == 'Default' || name == 'Repository'));
-    }).toList(growable: false);
     final vocabularyRows = await db.query(
       'VocabularyItem',
       orderBy: 'VocabularyItemID',
