@@ -22,33 +22,69 @@ class StudySetProperties extends StatelessWidget {
   }) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 4),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.center,
-        children: [
-          SizedBox(
-            width: 300,
-            child: Text(label),
-          ),
-          const SizedBox(width: 12),
-          SizedBox(
-            width: 60,
-            child: TextField(
-              controller: controller,
-              keyboardType: TextInputType.number,
-              decoration: const InputDecoration(
-                isDense: true,
-                contentPadding: EdgeInsets.only(bottom: 2),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final compact = constraints.maxWidth < 560;
+
+          if (compact) {
+            return Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                Expanded(
+                  child: Text(label),
+                ),
+                const SizedBox(width: 10),
+                SizedBox(
+                  width: 60,
+                  child: TextField(
+                    controller: controller,
+                    keyboardType: TextInputType.number,
+                    onTapOutside: (_) => FocusScope.of(context).unfocus(),
+                    decoration: const InputDecoration(
+                      isDense: true,
+                      contentPadding: EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 8,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            );
+          }
+
+          return Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              SizedBox(
+                width: 300,
+                child: Text(label),
               ),
-            ),
-          ),
-          if (showSuggestedValues) ...[
-            const SizedBox(width: 12),
-            Text(
-              'Suggested: $suggestedValue',
-              style: const TextStyle(fontSize: 12),
-            ),
-          ],
-        ],
+              const SizedBox(width: 12),
+              SizedBox(
+                width: 60,
+                child: TextField(
+                  controller: controller,
+                  keyboardType: TextInputType.number,
+                  onTapOutside: (_) => FocusScope.of(context).unfocus(),
+                  decoration: const InputDecoration(
+                    isDense: true,
+                    contentPadding: EdgeInsets.only(bottom: 2),
+                  ),
+                ),
+              ),
+              if (showSuggestedValues) ...[
+                const SizedBox(width: 12),
+                Flexible(
+                  child: Text(
+                    'Suggested: $suggestedValue',
+                    style: const TextStyle(fontSize: 12),
+                  ),
+                ),
+              ],
+            ],
+          );
+        },
       ),
     );
   }

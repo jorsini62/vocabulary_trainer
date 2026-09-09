@@ -2,8 +2,10 @@ import 'package:flutter/material.dart';
 
 import '../../domain/vocabulary_item.dart';
 import '../../domain/learning_state.dart';
+import '../../domain/language_combination.dart';
 import '../../domain/study_set.dart';
 import '../../repository/sqlite_configuration_repository.dart';
+import '../../repository/sqlite_language_combination_repository.dart';
 import '../../repository/sqlite_study_set_repository.dart';
 import '../../repository/sqlite_vocabulary_repository.dart';
 import 'package:vocabulary_trainer/domain/configuration.dart';
@@ -37,6 +39,10 @@ class _VocabularyManagementScreenState
   final SQLiteConfigurationRepository _configurationRepository =
       SQLiteConfigurationRepository();
 
+  final SQLiteLanguageCombinationRepository
+      _languageCombinationRepository =
+      SQLiteLanguageCombinationRepository();
+
   static const double _tableFontSize = 12;
   static const double _headerFontSize = 12;
 
@@ -49,6 +55,8 @@ class _VocabularyManagementScreenState
   List<StudySet> _studySets = [];
 
   StudySet? _currentStudySetFilter;
+
+  LanguageCombination? _currentLanguageCombination;
 
   Set<int> _visibleVocabularyItemIds = {};
 
@@ -122,6 +130,10 @@ class _VocabularyManagementScreenState
       return;
     }
 
+    final languageCombination = await _languageCombinationRepository.getById(
+      configuration.currentLanguagePairId!,
+    );
+
     final vocabulary = await _vocabularyRepository
         .getVocabularyItemsByLanguageCombinationId(
           configuration.currentLanguagePairId!,
@@ -138,6 +150,7 @@ class _VocabularyManagementScreenState
     if (!mounted) return;
 
     setState(() {
+      _currentLanguageCombination = languageCombination;
       _studySets = studySets;
 
       if (_currentStudySetFilter == null && studySets.isNotEmpty) {
@@ -364,171 +377,176 @@ class _VocabularyManagementScreenState
   Future<void> _showCreateDialog() async {
     final sourceController = TextEditingController();
     final targetController = TextEditingController();
-    bool addToCurrentStudySet =
-        _currentStudySetFilter != null && !_currentStudySetFilter!.isDefaultStudySet;
 
-    await showDialog(
-      context: context,
-      builder: (dialogContext) {
-        return StatefulBuilder(
-          builder: (context, setDialogState) {
-            final currentStudySet = _currentStudySetFilter;
-            return AlertDialog(
-              title: const Text('Create Vocabulary'),
-              content: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Row(
+    try {
+      await showDialog<void>(
+        context: context,
+        builder: (dialogContext) {
+          return StatefulBuilder(
+            builder: (context, setDialogState) {
+              final currentStudySet = _currentStudySetFilter;
+              bool addToCurrentStudySet =
+                  currentStudySet != null && !currentStudySet.isDefaultStudySet;
+
+              return AlertDialog(
+                title: const Text('Create Vocabulary'),
+                content: SingleChildScrollView(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      const SizedBox(width: 70, child: Text('Source:')),
-                      SizedBox(
-                        width: 260,
-                        child: TextField(
-                          controller: sourceController,
-                          autofocus: true,
-                          decoration: const InputDecoration(
-                            border: OutlineInputBorder(),
-                            isDense: true,
-                          ),
+                      const Text('Source:'),
+                      const SizedBox(height: 6),
+                      TextField(
+                        controller: sourceController,
+                        autofocus: true,
+                        textInputAction: TextInputAction.next,
+                        decoration: const InputDecoration(
+                          border: OutlineInputBorder(),
+                          isDense: true,
                         ),
                       ),
-                    ],
-                  ),
-                  const SizedBox(height: 12),
-                  Row(
-                    children: [
-                      const SizedBox(width: 70, child: Text('Target:')),
-                      SizedBox(
-                        width: 260,
-                        child: TextField(
-                          controller: targetController,
-                          decoration: const InputDecoration(
-                            border: OutlineInputBorder(),
-                            isDense: true,
-                          ),
+                      const SizedBox(height: 12),
+                      const Text('Target:'),
+                      const SizedBox(height: 6),
+                      TextField(
+                        controller: targetController,
+                        textInputAction: TextInputAction.done,
+                        decoration: const InputDecoration(
+                          border: OutlineInputBorder(),
+                          isDense: true,
                         ),
                       ),
+                      const SizedBox(height: 16),
+                      Align(
+                        alignment: Alignment.centerLeft,
+                        child: Text(
+                          currentStudySet == null
+                              ? 'Study Set: ${_defaultStudySetLabel()}'
+                              : 'Study Set: ${currentStudySet.isDefaultStudySet ? '★ ${currentStudySet.name}' : currentStudySet.name}',
+                        ),
+                      ),
+                      if (currentStudySet != null &&
+                          !currentStudySet.isDefaultStudySet)
+                        CheckboxListTile(
+                          contentPadding: EdgeInsets.zero,
+                          title: const Text('Add to this Study Set'),
+                          value: addToCurrentStudySet,
+                          onChanged: (value) {
+                            setDialogState(() {
+                              addToCurrentStudySet = value ?? false;
+                            });
+                          },
+                        ),
                     ],
                   ),
-                  const SizedBox(height: 16),
-                  Align(
-                    alignment: Alignment.centerLeft,
-                    child: Text(
-                      currentStudySet == null
-                          ? 'Study Set: ${_defaultStudySetLabel()}'
-                          : 'Study Set: ${currentStudySet.isDefaultStudySet ? '★ ${currentStudySet.name}' : currentStudySet.name}',
-                    ),
+                ),
+                actions: [
+                  TextButton(
+                    onPressed: () => Navigator.pop(dialogContext),
+                    child: const Text('Cancel'),
                   ),
-                  if (currentStudySet != null && !currentStudySet.isDefaultStudySet)
-                    CheckboxListTile(
-                      contentPadding: EdgeInsets.zero,
-                      title: const Text('Add to this Study Set'),
-                      value: addToCurrentStudySet,
-                      onChanged: (value) {
-                        setDialogState(() {
-                          addToCurrentStudySet = value ?? false;
-                        });
-                      },
-                    ),
+                  FilledButton(
+                    onPressed: () async {
+                      final sourceExpression = sourceController.text.trim();
+                      final targetExpression = targetController.text.trim();
+
+                      if (sourceExpression.isEmpty || targetExpression.isEmpty) {
+                        ScaffoldMessenger.of(this.context).showSnackBar(
+                          const SnackBar(
+                            content: Text('Source and Target are required.'),
+                          ),
+                        );
+                        return;
+                      }
+
+                      final configuration =
+                          await _configurationRepository.getConfiguration();
+                      if (configuration?.currentLanguagePairId == null) {
+                        ScaffoldMessenger.of(this.context).showSnackBar(
+                          const SnackBar(
+                            content: Text('No Language Pair is currently selected.'),
+                          ),
+                        );
+                        return;
+                      }
+
+                      final languagePairId =
+                          configuration!.currentLanguagePairId!;
+                      final exists =
+                          await _vocabularyRepository.sourceExpressionExists(
+                        languagePairId,
+                        sourceExpression,
+                      );
+
+                      if (exists) {
+                        ScaffoldMessenger.of(this.context).showSnackBar(
+                          const SnackBar(
+                            content: Text(
+                              'A vocabulary item with this Source already exists.',
+                            ),
+                          ),
+                        );
+                        return;
+                      }
+
+                      final vocabularyItem = VocabularyItem(
+                        languageCombinationId: languagePairId,
+                        sourceExpression: sourceExpression,
+                        targetExpression: targetExpression,
+                        learningState: LearningState.newItem,
+                        learningTimestamp: null,
+                      );
+
+                      final vocabularyItemId =
+                          await _vocabularyRepository.insertVocabularyItem(
+                        vocabularyItem,
+                      );
+
+                      final repositoryStudySet = _studySets.firstWhere(
+                        (studySet) => studySet.isDefaultStudySet,
+                        orElse: () => throw StateError(
+                          'Repository Study Set not found for current Language Pair.',
+                        ),
+                      );
+
+                      // Every vocabulary item belongs to the Repository.
+                      if (repositoryStudySet.id != null) {
+                        await _studySetRepository.addVocabularyItemToStudySet(
+                          vocabularyItemId,
+                          repositoryStudySet.id!,
+                        );
+                      }
+
+                      if (addToCurrentStudySet && currentStudySet?.id != null) {
+                        await _studySetRepository.addVocabularyItemToStudySet(
+                          vocabularyItemId,
+                          currentStudySet!.id!,
+                        );
+                      }
+
+                      if (!dialogContext.mounted) return;
+                      Navigator.pop(dialogContext);
+                      await _loadVocabulary();
+                    },
+                    child: const Text('Create'),
+                  ),
                 ],
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.pop(dialogContext),
-                  child: const Text('Cancel'),
-                ),
-                FilledButton(
-                  onPressed: () async {
-                    final sourceExpression = sourceController.text.trim();
-                    final targetExpression = targetController.text.trim();
-
-                    if (sourceExpression.isEmpty || targetExpression.isEmpty) {
-                      ScaffoldMessenger.of(this.context).showSnackBar(
-                        const SnackBar(
-                          content: Text('Source and Target are required.'),
-                        ),
-                      );
-                      return;
-                    }
-
-                    final configuration =
-                        await _configurationRepository.getConfiguration();
-                    if (configuration?.currentLanguagePairId == null) {
-                      ScaffoldMessenger.of(this.context).showSnackBar(
-                        const SnackBar(
-                          content: Text('No Language Pair is currently selected.'),
-                        ),
-                      );
-                      return;
-                    }
-
-                    final languagePairId = configuration!.currentLanguagePairId!;
-                    final exists = await _vocabularyRepository.sourceExpressionExists(
-                      languagePairId,
-                      sourceExpression,
-                    );
-
-                    if (exists) {
-                      ScaffoldMessenger.of(this.context).showSnackBar(
-                        const SnackBar(
-                          content: Text(
-                            'A vocabulary item with this Source already exists.',
-                          ),
-                        ),
-                      );
-                      return;
-                    }
-
-                    final vocabularyItem = VocabularyItem(
-                      languageCombinationId: languagePairId,
-                      sourceExpression: sourceExpression,
-                      targetExpression: targetExpression,
-                      learningState: LearningState.newItem,
-                      learningTimestamp: null,
-                    );
-
-                    final vocabularyItemId =
-                        await _vocabularyRepository.insertVocabularyItem(
-                      vocabularyItem,
-                    );
-
-                    final repositoryStudySet = _studySets.firstWhere(
-                      (studySet) => studySet.isDefaultStudySet,
-                      orElse: () => throw StateError(
-                        'Repository Study Set not found for current Language Pair.',
-                      ),
-                    );
-
-                    // Every vocabulary item belongs to the Repository.
-                    if (repositoryStudySet.id != null) {
-                      await _studySetRepository.addVocabularyItemToStudySet(
-                        vocabularyItemId,
-                        repositoryStudySet.id!,
-                      );
-                    }
-
-                    if (addToCurrentStudySet && currentStudySet?.id != null) {
-                      await _studySetRepository.addVocabularyItemToStudySet(
-                        vocabularyItemId,
-                        currentStudySet!.id!,
-                      );
-                    }
-
-                    if (!dialogContext.mounted) return;
-                    Navigator.pop(dialogContext);
-                    await _loadVocabulary();
-                  },
-                  child: const Text('Create'),
-                ),
-              ],
-            );
-          },
-        );
-      },
-    );
-
-    sourceController.dispose();
-    targetController.dispose();
+              );
+            },
+          );
+        },
+      );
+    } finally {
+      // On iOS the dialog route can still be completing its transition or
+      // final text-field gesture when showDialog returns. Dispose the
+      // controllers on the next frame so no TextField can access a disposed
+      // controller during that final transition.
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        sourceController.dispose();
+        targetController.dispose();
+      });
+    }
   }
 
   Future<void> _deleteSelectedVocabularyItems() async {
@@ -917,7 +935,23 @@ class _VocabularyManagementScreenState
         });
       },
       child: Scaffold(
-        appBar: AppBar(title: const Text('Vocabulary Management')),
+        appBar: AppBar(
+          title: _currentLanguageCombination == null
+              ? const Text('Vocabulary Management')
+              : Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text('Vocabulary Management'),
+                    Text(
+                      '${_currentLanguageCombination!.sourceLanguage} → ${_currentLanguageCombination!.targetLanguage}',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(fontSize: 12),
+                    ),
+                  ],
+                ),
+        ),
       body: Column(
         children: [
           Padding(

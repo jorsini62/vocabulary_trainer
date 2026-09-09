@@ -294,7 +294,7 @@ class _CreateLanguagePairScreenState extends State<CreateLanguagePairScreen> {
             const Divider(),
             const SizedBox(height: 18),
             const Text(
-              'Existing Language Pair',
+              'Delete Language Pair',
               style: TextStyle(fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 10),

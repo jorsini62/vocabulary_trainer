@@ -454,7 +454,8 @@ class _VocabularyImportScreenState extends State<VocabularyImportScreen> {
                         target,
                       );
 
-                      if (addToTargetStudySet) {
+                      if (addToTargetStudySet &&
+                          !duplicate.alreadyInDestinationStudySet) {
                         await _studySetRepository.addVocabularyItemToStudySet(
                           duplicate.vocabularyItemId,
                           duplicate.resolveStudySetId,

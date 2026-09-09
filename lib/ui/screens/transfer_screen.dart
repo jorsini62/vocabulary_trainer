@@ -1,4 +1,6 @@
+import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
@@ -139,23 +141,43 @@ class _TransferScreenState extends State<TransferScreen> {
       return;
     }
 
-    final filePath = await FilePicker.platform.saveFile(
-      dialogTitle: 'Export Study Set',
-      fileName: 'vocabulary_trainer_study_set.json',
-      type: FileType.custom,
-      allowedExtensions: const ['json'],
-    );
+    final isMobile = Platform.isIOS || Platform.isAndroid;
+    String? filePath;
 
-    if (filePath == null) return;
+    if (isMobile) {
+      await _runBusy(() async {
+        final json = await _transferService.buildStudySetExportJson(
+          studySetId: studySet!.id!,
+        );
+        final bytes = Uint8List.fromList(utf8.encode(json));
 
-    await _runBusy(() async {
-      await _transferService.exportStudySet(
-        studySetId: studySet!.id!,
-        filePath: filePath,
+        filePath = await FilePicker.platform.saveFile(
+          dialogTitle: 'Export Study Set',
+          fileName: 'vocabulary_trainer_study_set.json',
+          type: FileType.custom,
+          allowedExtensions: const ['json'],
+          bytes: bytes,
+        );
+      });
+    } else {
+      filePath = await FilePicker.platform.saveFile(
+        dialogTitle: 'Export Study Set',
+        fileName: 'vocabulary_trainer_study_set.json',
+        type: FileType.custom,
+        allowedExtensions: const ['json'],
       );
-    });
 
-    if (!mounted) return;
+      if (filePath == null) return;
+
+      await _runBusy(() async {
+        await _transferService.exportStudySet(
+          studySetId: studySet!.id!,
+          filePath: filePath!,
+        );
+      });
+    }
+
+    if (filePath == null || !mounted) return;
     await _showMessage('Study Set exported successfully.');
   }
 
@@ -309,20 +331,38 @@ class _TransferScreenState extends State<TransferScreen> {
     );
     if (!confirmed) return;
 
-    final filePath = await FilePicker.platform.saveFile(
-      dialogTitle: 'Export Everything',
-      fileName: 'vocabulary_trainer_everything.json',
-      type: FileType.custom,
-      allowedExtensions: const ['json'],
-    );
+    final isMobile = Platform.isIOS || Platform.isAndroid;
+    String? filePath;
 
-    if (filePath == null) return;
+    if (isMobile) {
+      await _runBusy(() async {
+        final json = await _transferService.buildEverythingExportJson();
+        final bytes = Uint8List.fromList(utf8.encode(json));
 
-    await _runBusy(() async {
-      await _transferService.exportEverything(filePath: filePath);
-    });
+        filePath = await FilePicker.platform.saveFile(
+          dialogTitle: 'Export Everything',
+          fileName: 'vocabulary_trainer_everything.json',
+          type: FileType.custom,
+          allowedExtensions: const ['json'],
+          bytes: bytes,
+        );
+      });
+    } else {
+      filePath = await FilePicker.platform.saveFile(
+        dialogTitle: 'Export Everything',
+        fileName: 'vocabulary_trainer_everything.json',
+        type: FileType.custom,
+        allowedExtensions: const ['json'],
+      );
 
-    if (!mounted) return;
+      if (filePath == null) return;
+
+      await _runBusy(() async {
+        await _transferService.exportEverything(filePath: filePath!);
+      });
+    }
+
+    if (filePath == null || !mounted) return;
     await _showMessage('Complete database exported successfully.');
   }
 
@@ -521,17 +561,7 @@ class _TransferScreenState extends State<TransferScreen> {
     final importPair = _importLanguagePair;
 
     return Scaffold(
-      appBar: AppBar(
-        title: Text(
-          switch (widget.mode) {
-            TransferScreenMode.studySetExport => 'Transfer Study Set',
-            TransferScreenMode.studySetImport => 'Import Study Set',
-            TransferScreenMode.databaseExport => 'Transfer Database',
-            TransferScreenMode.databaseImport => 'Import Database',
-            TransferScreenMode.all => 'Transfer & Import',
-          },
-        ),
-      ),
+      appBar: AppBar(title: const Text('Transfer')),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(16),
         child: Center(
@@ -543,17 +573,13 @@ class _TransferScreenState extends State<TransferScreen> {
                 if (widget.mode == TransferScreenMode.all ||
                     widget.mode == TransferScreenMode.studySetExport ||
                     widget.mode == TransferScreenMode.studySetImport) ...[
-                  Text(
-                    widget.mode == TransferScreenMode.studySetImport
-                        ? 'Import Study Set'
-                        : 'Transfer Study Set',
-                    style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                  const Text(
+                    'Transfer Study Set',
+                    style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
                   ),
                   const SizedBox(height: 6),
-                  Text(
-                    widget.mode == TransferScreenMode.studySetImport
-                        ? 'Import selected study set transfer file into target study set of this installation.'
-                        : 'Move one Study Set to another installation. Other Study Set memberships are not transferred.',
+                  const Text(
+                    'Move one Study Set to another installation. Other Study Set memberships are not transferred.',
                   ),
                   const SizedBox(height: 16),
                   DropdownButtonFormField<LanguageCombination>(
@@ -613,7 +639,7 @@ class _TransferScreenState extends State<TransferScreen> {
                       Text(
                         importPair == null
                             ? ''
-                            : 'Import Language Pair: ${importPair.sourceLanguage} → ${importPair.targetLanguage}',
+                            : 'Transfer Language Pair: ${importPair.sourceLanguage} → ${importPair.targetLanguage}',
                       ),
                       const SizedBox(height: 10),
                       DropdownButtonFormField<StudySet>(
@@ -654,7 +680,7 @@ class _TransferScreenState extends State<TransferScreen> {
                   if (_selectedImportFileName != null) ...[
                     Text('Selected file: $_selectedImportFileName'),
                     const SizedBox(height: 8),
-                    Text(importPair == null ? '' : 'Import Language Pair: ${importPair.sourceLanguage} → ${importPair.targetLanguage}'),
+                    Text(importPair == null ? '' : 'Transfer Language Pair: ${importPair.sourceLanguage} → ${importPair.targetLanguage}'),
                     const SizedBox(height: 8),
                     DropdownButtonFormField<StudySet>(
                       value: _importTargetStudySet,
