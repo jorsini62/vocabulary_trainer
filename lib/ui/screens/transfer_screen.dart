@@ -8,6 +8,7 @@ import 'package:flutter/material.dart';
 import '../../domain/configuration.dart';
 import '../../domain/language_combination.dart';
 import '../../domain/study_set.dart';
+import '../../repository/database_backup_service.dart';
 import '../../repository/sqlite_configuration_repository.dart';
 import '../../repository/sqlite_language_combination_repository.dart';
 import '../../repository/sqlite_study_set_repository.dart';
@@ -38,6 +39,7 @@ class _TransferScreenState extends State<TransferScreen> {
   final _configurationRepository = SQLiteConfigurationRepository();
   final _transferService = TransferService();
   final _transferCodec = TransferJsonCodec();
+  final _databaseBackupService = DatabaseBackupService();
 
   List<LanguageCombination> _languagePairs = [];
   List<StudySet> _studySets = [];
@@ -75,17 +77,18 @@ class _TransferScreenState extends State<TransferScreen> {
       }
     }
 
-    selectedLanguagePair ??=
-        languagePairs.isNotEmpty ? languagePairs.first : null;
+    selectedLanguagePair ??= languagePairs.isNotEmpty
+        ? languagePairs.first
+        : null;
 
     final filteredStudySets = selectedLanguagePair == null
         ? <StudySet>[]
         : allStudySets
-            .where(
-              (studySet) =>
-                  studySet.languageCombinationId == selectedLanguagePair!.id,
-            )
-            .toList();
+              .where(
+                (studySet) =>
+                    studySet.languageCombinationId == selectedLanguagePair!.id,
+              )
+              .toList();
 
     if (configuration?.currentStudySetId != null) {
       for (final studySet in filteredStudySets) {
@@ -96,10 +99,12 @@ class _TransferScreenState extends State<TransferScreen> {
       }
     }
 
-    selectedStudySet ??=
-        filteredStudySets.isNotEmpty ? filteredStudySets.first : null;
+    selectedStudySet ??= filteredStudySets.isNotEmpty
+        ? filteredStudySets.first
+        : null;
 
     if (!mounted) return;
+
     setState(() {
       _languagePairs = languagePairs;
       _selectedLanguagePair = selectedLanguagePair;
@@ -127,6 +132,7 @@ class _TransferScreenState extends State<TransferScreen> {
     );
 
     if (!mounted) return;
+
     setState(() {
       _selectedLanguagePair = value;
       _studySets = studySets;
@@ -136,6 +142,7 @@ class _TransferScreenState extends State<TransferScreen> {
 
   Future<void> _exportStudySet() async {
     final studySet = _selectedStudySet;
+
     if (studySet?.id == null) {
       await _showMessage('Select a Study Set before exporting.');
       return;
@@ -178,6 +185,7 @@ class _TransferScreenState extends State<TransferScreen> {
     }
 
     if (filePath == null || !mounted) return;
+
     await _showMessage('Study Set exported successfully.');
   }
 
@@ -200,10 +208,10 @@ class _TransferScreenState extends State<TransferScreen> {
     TransferStudySetPackage? preDecodedPackage,
   ) async {
     try {
-      final package = preDecodedPackage ??
-          await _decodeStudySetFile(filePath);
+      final package = preDecodedPackage ?? await _decodeStudySetFile(filePath);
 
       final allStudySets = await _studySetRepository.getAllStudySets();
+
       final matchingPairs = _languagePairs.where((pair) {
         return pair.sourceLanguage == package.languagePair.sourceLanguage &&
             pair.targetLanguage == package.languagePair.targetLanguage;
@@ -220,6 +228,7 @@ class _TransferScreenState extends State<TransferScreen> {
       }
 
       final pair = matchingPairs.first;
+
       final targetStudySets = allStudySets
           .where((studySet) => studySet.languageCombinationId == pair.id)
           .toList();
@@ -233,12 +242,16 @@ class _TransferScreenState extends State<TransferScreen> {
       }
 
       if (!mounted) return;
+
       final currentTarget = _selectedStudySet;
-      final preservedTarget = currentTarget != null &&
+
+      final preservedTarget =
+          currentTarget != null &&
               currentTarget.languageCombinationId == pair.id &&
               targetStudySets.any((set) => set.id == currentTarget.id)
           ? targetStudySets.firstWhere((set) => set.id == currentTarget.id)
           : targetStudySets.first;
+
       setState(() {
         _selectedImportFileName = filePath.split('/').last;
         _selectedImportFilePath = filePath;
@@ -258,8 +271,6 @@ class _TransferScreenState extends State<TransferScreen> {
   }
 
   Future<List<int>> _readFileBytes(String filePath) async {
-    // file_picker does not provide a cross-platform full-file read API for a
-    // path, so use dart:io here.
     final file = File(filePath);
     return file.readAsBytes();
   }
@@ -282,24 +293,28 @@ class _TransferScreenState extends State<TransferScreen> {
       );
 
       final resolvedTargets = <String, String>{};
+
       for (final conflict in plan.contentConflicts) {
         final resolution = await _resolveConflict(conflict);
+
         if (resolution == null) {
           throw const TransferValidationException(
             'The Transfer was cancelled during conflict resolution.',
           );
         }
+
         resolvedTargets[_conflictKey(conflict.importedItem)] = resolution;
       }
 
       var allowHistoryOverwrite = false;
+
       if (plan.learningHistoryWillBeOverwritten) {
-        allowHistoryOverwrite =
-            await _showLearningHistoryOverwriteWarning();
+        allowHistoryOverwrite = await _showLearningHistoryOverwriteWarning();
+
         if (!allowHistoryOverwrite) {
           throw const TransferValidationException(
-            'The Transfer was cancelled because existing learning information '
-            'was not permitted to be overwritten.',
+            'The Transfer was cancelled because existing learning '
+            'information was not permitted to be overwritten.',
           );
         }
       }
@@ -312,6 +327,7 @@ class _TransferScreenState extends State<TransferScreen> {
       );
 
       if (!mounted) return;
+
       await _showMessage(
         'Study Set Transfer completed.\n\n'
         '${plan.newItems.length} new Vocabulary Items\n'
@@ -329,6 +345,7 @@ class _TransferScreenState extends State<TransferScreen> {
           'Language Pairs, Study Sets, Study Set memberships, learning history, '
           'and Study Set settings.',
     );
+
     if (!confirmed) return;
 
     final isMobile = Platform.isIOS || Platform.isAndroid;
@@ -363,41 +380,202 @@ class _TransferScreenState extends State<TransferScreen> {
     }
 
     if (filePath == null || !mounted) return;
+
     await _showMessage('Complete database exported successfully.');
   }
 
   Future<void> _importEverything() async {
     final result = await FilePicker.platform.pickFiles(
-      dialogTitle: 'Select Complete Transfer',
+      dialogTitle: 'Select Database Backup',
       type: FileType.custom,
-      allowedExtensions: const ['json'],
+      allowedExtensions: const ['db'],
       withData: false,
     );
+
     if (result == null || result.files.single.path == null) return;
 
     final filePath = result.files.single.path!;
 
+    DatabaseBackupInfo info;
+
+    try {
+      info = await _databaseBackupService.validateDatabase(filePath);
+    } catch (e) {
+      if (!mounted) return;
+
+      await _showMessage(
+        'The selected file is not a valid Vocabulary Trainer database.\n\n$e',
+      );
+      return;
+    }
+
+    if (!mounted) return;
+
     final confirmed = await _showConfirmation(
-      title: 'Transfer Everything',
+      title: 'Restore Database',
       message:
-          'Transfer Everything is intended for a new or empty installation. '
-          'The target environment must contain no learner data. Continue?',
+          'This will replace the current database with the selected backup.\n\n'
+          'Vocabulary items: ${info.vocabularyItemCount}\n'
+          'Study sets: ${info.studySetCount}\n'
+          'Language combinations: ${info.languageCombinationCount}\n\n'
+          'The current database will be backed up before it is replaced. '
+          'Continue?',
     );
+
     if (!confirmed) return;
 
     await _runBusy(() async {
-      await _transferService.importEverything(filePath: filePath);
+      await _databaseBackupService.restoreDatabase(sourcePath: filePath);
+      try {
+        await _databaseBackupService.createAutomaticBackup();
+      } catch (e) {
+        debugPrint('Post-restore automatic backup failed: $e');
+      }
     });
 
     if (!mounted) return;
+
     await _showMessage(
-      'Complete database imported successfully.\n\n'
-      'Return to the Learning Center to view the transferred environment.',
+      'Database restored successfully.\n\n'
+      'A rolling backup of the restored database was created.\n\n'
+      'Return to the Learning Center to view the restored environment.',
     );
+  }
+
+  Future<void> _exportDatabase() async {
+    final isMobile = Platform.isIOS || Platform.isAndroid;
+
+    await _runBusy(() async {
+      String? destinationPath;
+      String? temporaryPath;
+      Directory? temporaryDirectory;
+
+      try {
+        if (isMobile) {
+          temporaryDirectory = await Directory.systemTemp.createTemp(
+            'vocabulary_trainer_database_export_',
+          );
+
+          temporaryPath =
+              '${temporaryDirectory.path}/'
+              '${DatabaseBackupService.databaseFileName}';
+
+          await _databaseBackupService.exportDatabase(
+            destinationPath: temporaryPath,
+          );
+
+          final bytes = await File(temporaryPath).readAsBytes();
+
+          destinationPath = await FilePicker.platform.saveFile(
+            dialogTitle: 'Export Database',
+            fileName: DatabaseBackupService.databaseFileName,
+            type: FileType.custom,
+            allowedExtensions: const ['db'],
+            bytes: bytes,
+          );
+        } else {
+          destinationPath = await FilePicker.platform.saveFile(
+            dialogTitle: 'Export Database',
+            fileName: DatabaseBackupService.databaseFileName,
+            type: FileType.custom,
+            allowedExtensions: const ['db'],
+          );
+
+          if (destinationPath == null) return;
+
+          await _databaseBackupService.exportDatabase(
+            destinationPath: destinationPath,
+          );
+        }
+
+        if (destinationPath == null) return;
+
+        final info = await _databaseBackupService.validateDatabase(
+          destinationPath,
+        );
+
+        if (!mounted) return;
+
+        await _showMessage(
+          'Database export completed.\n\n'
+          'Vocabulary Items: ${info.vocabularyItemCount}\n'
+          'Study Sets: ${info.studySetCount}\n'
+          'Language Pairs: ${info.languageCombinationCount}\n'
+          'Memberships: ${info.membershipCount}',
+        );
+      } finally {
+        if (temporaryDirectory != null) {
+          try {
+            await temporaryDirectory.delete(recursive: true);
+          } catch (_) {
+            // Temporary cleanup failure does not invalidate the export.
+          }
+        } else if (temporaryPath != null) {
+          try {
+            await File(temporaryPath).delete();
+          } catch (_) {
+            // Temporary cleanup failure does not invalidate the export.
+          }
+        }
+      }
+    });
+  }
+
+  Future<void> _importDatabase() async {
+    final result = await FilePicker.platform.pickFiles(
+      dialogTitle: 'Select Vocabulary Trainer Database',
+      type: FileType.any,
+      withData: false,
+    );
+
+    if (result == null || result.files.single.path == null) return;
+
+    final sourcePath = result.files.single.path!;
+
+    await _runBusy(() async {
+      final info = await _databaseBackupService.validateDatabase(sourcePath);
+
+      if (!mounted) return;
+
+      final confirmed = await _showConfirmation(
+        title: 'Restore Database',
+        message:
+            'The selected database is valid.\n\n'
+            'Vocabulary Items: ${info.vocabularyItemCount}\n'
+            'Study Sets: ${info.studySetCount}\n'
+            'Language Pairs: ${info.languageCombinationCount}\n'
+            'Memberships: ${info.membershipCount}\n\n'
+            'Restoring it will replace the current database. '
+            'A safety copy of the current database will be created first.\n\n'
+            'Continue?',
+      );
+
+      if (!confirmed) return;
+
+      await _databaseBackupService.restoreDatabase(sourcePath: sourcePath);
+      try {
+        await _databaseBackupService.createAutomaticBackup();
+      } catch (e) {
+        debugPrint('Post-restore automatic backup failed: $e');
+      }
+
+      await _loadContext();
+
+      if (!mounted) return;
+
+      await _showMessage(
+        'Database restored successfully.\n\n'
+        'Vocabulary Items: ${info.vocabularyItemCount}\n'
+        'Study Sets: ${info.studySetCount}\n'
+        'Language Pairs: ${info.languageCombinationCount}\n\n'
+        'A rolling backup of the restored database was created.',
+      );
+    });
   }
 
   Future<String?> _resolveConflict(TransferContentConflict conflict) async {
     final controller = TextEditingController();
+
     try {
       return await showDialog<String>(
         context: context,
@@ -449,19 +627,23 @@ class _TransferScreenState extends State<TransferScreen> {
                 child: const Text('Cancel'),
               ),
               OutlinedButton(
-                onPressed: () => Navigator.of(dialogContext)
-                    .pop(conflict.existingTargetExpression),
+                onPressed: () => Navigator.of(
+                  dialogContext,
+                ).pop(conflict.existingTargetExpression),
                 child: const Text('Adopt Existing'),
               ),
               OutlinedButton(
-                onPressed: () => Navigator.of(dialogContext)
-                    .pop(conflict.importedItem.targetExpression),
+                onPressed: () => Navigator.of(
+                  dialogContext,
+                ).pop(conflict.importedItem.targetExpression),
                 child: const Text('Adopt Imported'),
               ),
               FilledButton(
                 onPressed: () {
                   final value = controller.text.trim();
+
                   if (value.isEmpty) return;
+
                   Navigator.of(dialogContext).pop(value);
                 },
                 child: const Text('Use Edited Target'),
@@ -487,7 +669,9 @@ class _TransferScreenState extends State<TransferScreen> {
 
   Future<void> _runBusy(Future<void> Function() operation) async {
     if (_busy) return;
+
     setState(() => _busy = true);
+
     try {
       await operation();
     } on Exception catch (e) {
@@ -503,6 +687,7 @@ class _TransferScreenState extends State<TransferScreen> {
 
   Future<void> _showMessage(String message) async {
     if (!mounted) return;
+
     await showDialog<void>(
       context: context,
       builder: (context) => AlertDialog(
@@ -523,6 +708,7 @@ class _TransferScreenState extends State<TransferScreen> {
     required String message,
   }) async {
     if (!mounted) return false;
+
     final result = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
@@ -540,6 +726,7 @@ class _TransferScreenState extends State<TransferScreen> {
         ],
       ),
     );
+
     return result ?? false;
   }
 
@@ -547,6 +734,11 @@ class _TransferScreenState extends State<TransferScreen> {
     if (exception is TransferValidationException) {
       return exception.message;
     }
+
+    if (exception is DatabaseBackupException) {
+      return exception.message;
+    }
+
     return exception.toString();
   }
 
@@ -579,7 +771,8 @@ class _TransferScreenState extends State<TransferScreen> {
                   ),
                   const SizedBox(height: 6),
                   const Text(
-                    'Move one Study Set to another installation. Other Study Set memberships are not transferred.',
+                    'Move one Study Set to another installation. '
+                    'Other Study Set memberships are not transferred.',
                   ),
                   const SizedBox(height: 16),
                   DropdownButtonFormField<LanguageCombination>(
@@ -591,7 +784,10 @@ class _TransferScreenState extends State<TransferScreen> {
                     items: _languagePairs.map((pair) {
                       return DropdownMenuItem(
                         value: pair,
-                        child: Text('${pair.sourceLanguage} → ${pair.targetLanguage}'),
+                        child: Text(
+                          '${pair.sourceLanguage} → '
+                          '${pair.targetLanguage}',
+                        ),
                       );
                     }).toList(),
                     onChanged: _busy ? null : _selectLanguagePair,
@@ -600,7 +796,8 @@ class _TransferScreenState extends State<TransferScreen> {
                   DropdownButtonFormField<StudySet>(
                     value: _selectedStudySet,
                     decoration: InputDecoration(
-                      labelText: widget.mode == TransferScreenMode.studySetImport
+                      labelText:
+                          widget.mode == TransferScreenMode.studySetImport
                           ? 'Current Study Set'
                           : 'Study Set to Export',
                       border: const OutlineInputBorder(),
@@ -608,22 +805,32 @@ class _TransferScreenState extends State<TransferScreen> {
                     items: _studySets.map((studySet) {
                       return DropdownMenuItem(
                         value: studySet,
-                        child: Text(studySet.isDefaultStudySet ? '★ ${studySet.name}' : studySet.name),
+                        child: Text(
+                          studySet.isDefaultStudySet
+                              ? '★ ${studySet.name}'
+                              : studySet.name,
+                        ),
                       );
                     }).toList(),
                     onChanged: _busy
                         ? null
                         : (value) async {
                             if (value == null) return;
+
                             await _configurationRepository.saveConfiguration(
                               Configuration(
                                 id: 1,
-                                currentLanguagePairId: _selectedLanguagePair?.id,
+                                currentLanguagePairId:
+                                    _selectedLanguagePair?.id,
                                 currentStudySetId: value.id,
                               ),
                             );
+
                             if (!mounted) return;
-                            setState(() => _selectedStudySet = value);
+
+                            setState(() {
+                              _selectedStudySet = value;
+                            });
                           },
                   ),
                   const SizedBox(height: 12),
@@ -639,7 +846,9 @@ class _TransferScreenState extends State<TransferScreen> {
                       Text(
                         importPair == null
                             ? ''
-                            : 'Transfer Language Pair: ${importPair.sourceLanguage} → ${importPair.targetLanguage}',
+                            : 'Transfer Language Pair: '
+                                  '${importPair.sourceLanguage} → '
+                                  '${importPair.targetLanguage}',
                       ),
                       const SizedBox(height: 10),
                       DropdownButtonFormField<StudySet>(
@@ -660,7 +869,11 @@ class _TransferScreenState extends State<TransferScreen> {
                         }).toList(),
                         onChanged: _busy
                             ? null
-                            : (value) => setState(() => _importTargetStudySet = value),
+                            : (value) {
+                                setState(() {
+                                  _importTargetStudySet = value;
+                                });
+                              },
                       ),
                       const SizedBox(height: 10),
                       FilledButton(
@@ -675,66 +888,71 @@ class _TransferScreenState extends State<TransferScreen> {
                     ),
                   ],
                 ],
-                if (widget.mode == TransferScreenMode.all) ...[
-                  const SizedBox(height: 12),
-                  if (_selectedImportFileName != null) ...[
-                    Text('Selected file: $_selectedImportFileName'),
-                    const SizedBox(height: 8),
-                    Text(importPair == null ? '' : 'Transfer Language Pair: ${importPair.sourceLanguage} → ${importPair.targetLanguage}'),
-                    const SizedBox(height: 8),
-                    DropdownButtonFormField<StudySet>(
-                      value: _importTargetStudySet,
-                      decoration: const InputDecoration(
-                        labelText: 'Target Study Set',
-                        border: OutlineInputBorder(),
-                      ),
-                      items: _importTargetStudySets.map((studySet) {
-                        return DropdownMenuItem(
-                          value: studySet,
-                          child: Text(studySet.isDefaultStudySet ? '★ ${studySet.name}' : studySet.name),
-                        );
-                      }).toList(),
-                      onChanged: _busy ? null : (value) => setState(() => _importTargetStudySet = value),
-                    ),
-                    const SizedBox(height: 8),
-                    FilledButton(
-                      onPressed: _busy ? null : _importStudySet,
-                      child: const Text('Import into Target Study Set'),
-                    ),
-                  ],
-                ],
-                if (widget.mode == TransferScreenMode.studySetExport) const SizedBox.shrink(),
+
                 if (widget.mode == TransferScreenMode.all) ...[
                   const SizedBox(height: 32),
                   const Divider(),
                   const SizedBox(height: 24),
                 ],
+
                 if (widget.mode == TransferScreenMode.all ||
                     widget.mode == TransferScreenMode.databaseExport ||
                     widget.mode == TransferScreenMode.databaseImport) ...[
                   const Text(
-                    'Transfer Database',
+                    'Database Backup and Restore',
                     style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
                   ),
                   const SizedBox(height: 6),
                   const Text(
-                    'Transfer the complete vocabulary environment to or from a new or empty installation.',
+                    'Export or restore the complete SQLite database. '
+                    'This includes vocabulary corrections, Study Sets, '
+                    'memberships, and learning information.',
                   ),
                   const SizedBox(height: 16),
+
                   if (widget.mode == TransferScreenMode.all ||
                       widget.mode == TransferScreenMode.databaseExport)
                     FilledButton(
-                      onPressed: _busy ? null : _exportEverything,
-                      child: const Text('Transfer Database'),
+                      onPressed: _busy ? null : _exportDatabase,
+                      child: const Text('Export Database'),
                     ),
-                  if (widget.mode == TransferScreenMode.all) const SizedBox(height: 10),
+
+                  if (widget.mode == TransferScreenMode.all)
+                    const SizedBox(height: 10),
+
                   if (widget.mode == TransferScreenMode.all ||
                       widget.mode == TransferScreenMode.databaseImport)
                     OutlinedButton(
-                      onPressed: _busy ? null : _importEverything,
-                      child: const Text('Import Database'),
+                      onPressed: _busy ? null : _importDatabase,
+                      child: const Text('Restore Database'),
                     ),
                 ],
+
+                if (widget.mode == TransferScreenMode.all) ...[
+                  const SizedBox(height: 32),
+                  const Divider(),
+                  const SizedBox(height: 24),
+                  const Text(
+                    'Legacy JSON Transfer',
+                    style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                  ),
+                  const SizedBox(height: 6),
+                  const Text(
+                    'The JSON transfer remains available for compatibility '
+                    'with the existing transfer system.',
+                  ),
+                  const SizedBox(height: 16),
+                  FilledButton.tonal(
+                    onPressed: _busy ? null : _exportEverything,
+                    child: const Text('Export JSON Database'),
+                  ),
+                  const SizedBox(height: 10),
+                  OutlinedButton(
+                    onPressed: _busy ? null : _importEverything,
+                    child: const Text('Import JSON Database'),
+                  ),
+                ],
+
                 if (_busy) ...[
                   const SizedBox(height: 20),
                   const LinearProgressIndicator(),

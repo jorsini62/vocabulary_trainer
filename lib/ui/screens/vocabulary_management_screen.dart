@@ -1,15 +1,331 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../../domain/vocabulary_item.dart';
 import '../../domain/learning_state.dart';
-import '../../domain/language_combination.dart';
 import '../../domain/study_set.dart';
 import '../../repository/sqlite_configuration_repository.dart';
-import '../../repository/sqlite_language_combination_repository.dart';
 import '../../repository/sqlite_study_set_repository.dart';
 import '../../repository/sqlite_vocabulary_repository.dart';
 import 'package:vocabulary_trainer/domain/configuration.dart';
 import '../widgets/compact_dropdown.dart';
+import 'mobile_manage_membership_screen.dart';
+
+class _EditVocabularyDialog extends StatefulWidget {
+  final VocabularyItem vocabularyItem;
+  final int? resolveStudySetId;
+  final String? resolveStudySetName;
+  final Future<bool> Function(
+    String sourceExpression,
+    String targetExpression,
+    bool addToResolveStudySet,
+  ) onSave;
+
+  const _EditVocabularyDialog({
+    required this.vocabularyItem,
+    required this.resolveStudySetId,
+    required this.resolveStudySetName,
+    required this.onSave,
+  });
+
+  @override
+  State<_EditVocabularyDialog> createState() => _EditVocabularyDialogState();
+}
+
+class _EditVocabularyDialogState extends State<_EditVocabularyDialog> {
+  late final TextEditingController _sourceController;
+  late final TextEditingController _targetController;
+
+  late bool _addToResolveStudySet;
+  bool _saving = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _sourceController = TextEditingController(
+      text: widget.vocabularyItem.sourceExpression,
+    );
+    _targetController = TextEditingController(
+      text: widget.vocabularyItem.targetExpression,
+    );
+    _addToResolveStudySet = widget.resolveStudySetId != null;
+  }
+
+  @override
+  void dispose() {
+    _sourceController.dispose();
+    _targetController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _save() async {
+    if (_saving) return;
+
+    setState(() {
+      _saving = true;
+    });
+
+    try {
+      final saved = await widget.onSave(
+        _sourceController.text.trim(),
+        _targetController.text.trim(),
+        _addToResolveStudySet,
+      );
+
+      if (!mounted) return;
+
+      if (saved) {
+        Navigator.pop(context, true);
+      } else {
+        setState(() {
+          _saving = false;
+        });
+      }
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _saving = false;
+      });
+      rethrow;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Edit Vocabulary'),
+      content: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Row(
+              children: [
+                const SizedBox(width: 70, child: Text('Source:')),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: TextField(
+                    controller: _sourceController,
+                    autofocus: true,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                const SizedBox(width: 70, child: Text('Target:')),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: TextField(
+                    controller: _targetController,
+                  ),
+                ),
+              ],
+            ),
+            if (widget.resolveStudySetId != null) ...[
+              const SizedBox(height: 12),
+              CheckboxListTile(
+                contentPadding: EdgeInsets.zero,
+                value: _addToResolveStudySet,
+                onChanged: _saving
+                    ? null
+                    : (value) {
+                        setState(() {
+                          _addToResolveStudySet = value ?? false;
+                        });
+                      },
+                title: Text(
+                  'Add to ${widget.resolveStudySetName ?? 'this Study Set'}',
+                ),
+                dense: true,
+                controlAffinity: ListTileControlAffinity.leading,
+              ),
+            ],
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: _saving ? null : () => Navigator.pop(context, false),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          onPressed: _saving ? null : _save,
+          child: const Text('Save'),
+        ),
+      ],
+    );
+  }
+}
+
+class _CreateVocabularyDialog extends StatefulWidget {
+  final StudySet? currentStudySet;
+  final String defaultStudySetLabel;
+  final Future<bool> Function(
+    String sourceExpression,
+    String targetExpression,
+    bool addToCurrentStudySet,
+  ) onCreate;
+
+  const _CreateVocabularyDialog({
+    required this.currentStudySet,
+    required this.defaultStudySetLabel,
+    required this.onCreate,
+  });
+
+  @override
+  State<_CreateVocabularyDialog> createState() =>
+      _CreateVocabularyDialogState();
+}
+
+class _CreateVocabularyDialogState extends State<_CreateVocabularyDialog> {
+  late final TextEditingController _sourceController;
+  late final TextEditingController _targetController;
+
+  late bool _addToCurrentStudySet;
+
+  bool _creating = false;
+
+  @override
+  void initState() {
+    super.initState();
+
+    _sourceController = TextEditingController();
+    _targetController = TextEditingController();
+
+    _addToCurrentStudySet = widget.currentStudySet != null &&
+        !widget.currentStudySet!.isDefaultStudySet;
+  }
+
+  @override
+  void dispose() {
+    _sourceController.dispose();
+    _targetController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _create() async {
+    if (_creating) return;
+
+    setState(() {
+      _creating = true;
+    });
+
+    try {
+      final created = await widget.onCreate(
+        _sourceController.text.trim(),
+        _targetController.text.trim(),
+        _addToCurrentStudySet,
+      );
+
+      if (!mounted) return;
+
+      if (created) {
+        Navigator.pop(context, true);
+      } else {
+        setState(() {
+          _creating = false;
+        });
+      }
+    } catch (_) {
+      if (!mounted) return;
+
+      setState(() {
+        _creating = false;
+      });
+      rethrow;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final currentStudySet = widget.currentStudySet;
+
+    return AlertDialog(
+      title: const Text('Create Vocabulary'),
+      content: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Row(
+              children: [
+                const SizedBox(
+                  width: 70,
+                  child: Text('Source:'),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: TextField(
+                    controller: _sourceController,
+                    autofocus: true,
+                    decoration: const InputDecoration(
+                      border: OutlineInputBorder(),
+                      isDense: true,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                const SizedBox(
+                  width: 70,
+                  child: Text('Target:'),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: TextField(
+                    controller: _targetController,
+                    decoration: const InputDecoration(
+                      border: OutlineInputBorder(),
+                      isDense: true,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: Text(
+                currentStudySet == null
+                    ? 'Study Set: ${widget.defaultStudySetLabel}'
+                    : 'Study Set: ${currentStudySet.isDefaultStudySet ? '★ ${currentStudySet.name}' : currentStudySet.name}',
+              ),
+            ),
+            if (currentStudySet != null &&
+                !currentStudySet.isDefaultStudySet)
+              CheckboxListTile(
+                contentPadding: EdgeInsets.zero,
+                title: const Text('Add to this Study Set'),
+                value: _addToCurrentStudySet,
+                onChanged: _creating
+                    ? null
+                    : (value) {
+                        setState(() {
+                          _addToCurrentStudySet = value ?? false;
+                        });
+                      },
+              ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: _creating
+              ? null
+              : () => Navigator.pop(context, false),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          onPressed: _creating ? null : _create,
+          child: const Text('Create'),
+        ),
+      ],
+    );
+  }
+}
 
 class VocabularyManagementScreen extends StatefulWidget {
   final int? initialVocabularyItemId;
@@ -39,10 +355,6 @@ class _VocabularyManagementScreenState
   final SQLiteConfigurationRepository _configurationRepository =
       SQLiteConfigurationRepository();
 
-  final SQLiteLanguageCombinationRepository
-      _languageCombinationRepository =
-      SQLiteLanguageCombinationRepository();
-
   static const double _tableFontSize = 12;
   static const double _headerFontSize = 12;
 
@@ -55,8 +367,6 @@ class _VocabularyManagementScreenState
   List<StudySet> _studySets = [];
 
   StudySet? _currentStudySetFilter;
-
-  LanguageCombination? _currentLanguageCombination;
 
   Set<int> _visibleVocabularyItemIds = {};
 
@@ -130,10 +440,6 @@ class _VocabularyManagementScreenState
       return;
     }
 
-    final languageCombination = await _languageCombinationRepository.getById(
-      configuration.currentLanguagePairId!,
-    );
-
     final vocabulary = await _vocabularyRepository
         .getVocabularyItemsByLanguageCombinationId(
           configuration.currentLanguagePairId!,
@@ -150,7 +456,6 @@ class _VocabularyManagementScreenState
     if (!mounted) return;
 
     setState(() {
-      _currentLanguageCombination = languageCombination;
       _studySets = studySets;
 
       if (_currentStudySetFilter == null && studySets.isNotEmpty) {
@@ -213,108 +518,34 @@ class _VocabularyManagementScreenState
     int? resolveStudySetId,
     String? resolveStudySetName,
   }) async {
-    final sourceController = TextEditingController(
-      text: vocabularyItem.sourceExpression,
-    );
-
-    final targetController = TextEditingController(
-      text: vocabularyItem.targetExpression,
-    );
-
-    bool addToResolveStudySet = resolveStudySetId != null;
-    bool saved = false;
-
-    await showDialog<bool>(
+    final saved = await showDialog<bool>(
       context: context,
       builder: (dialogContext) {
-        return StatefulBuilder(
-          builder: (context, setDialogState) {
-            return AlertDialog(
-              title: const Text('Edit Vocabulary'),
-              content: SingleChildScrollView(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Row(
-                      children: [
-                        const SizedBox(width: 70, child: Text('Source:')),
-                        Expanded(
-                          child: TextField(
-                            controller: sourceController,
-                            autofocus: true,
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 12),
-                    Row(
-                      children: [
-                        const SizedBox(width: 70, child: Text('Target:')),
-                        Expanded(
-                          child: TextField(controller: targetController),
-                        ),
-                      ],
-                    ),
-                    if (resolveStudySetId != null) ...[
-                      const SizedBox(height: 12),
-                      CheckboxListTile(
-                        contentPadding: EdgeInsets.zero,
-                        value: addToResolveStudySet,
-                        onChanged: (value) {
-                          setDialogState(() {
-                            addToResolveStudySet = value ?? false;
-                          });
-                        },
-                        title: Text(
-                          'Add to ${resolveStudySetName ?? 'this Study Set'}',
-                        ),
-                        dense: true,
-                        controlAffinity: ListTileControlAffinity.leading,
-                      ),
-                    ],
-                  ],
-                ),
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.pop(dialogContext, false),
-                  child: const Text('Cancel'),
-                ),
-                FilledButton(
-                  onPressed: () async {
-                    final sourceExpression = sourceController.text.trim();
-                    final targetExpression = targetController.text.trim();
-
-                    await _vocabularyRepository.updateVocabularyExpressions(
-                      vocabularyItem.id!,
-                      sourceExpression,
-                      targetExpression,
-                    );
-
-                    if (resolveStudySetId != null && addToResolveStudySet) {
-                      await _studySetRepository.addVocabularyItemToStudySet(
-                        vocabularyItem.id!,
-                        resolveStudySetId,
-                      );
-                    }
-
-                    saved = true;
-                    if (!dialogContext.mounted) return;
-                    Navigator.pop(dialogContext, true);
-                  },
-                  child: const Text('Save'),
-                ),
-              ],
+        return _EditVocabularyDialog(
+          vocabularyItem: vocabularyItem,
+          resolveStudySetId: resolveStudySetId,
+          resolveStudySetName: resolveStudySetName,
+          onSave: (sourceExpression, targetExpression, addToResolveStudySet) async {
+            await _vocabularyRepository.updateVocabularyExpressions(
+              vocabularyItem.id!,
+              sourceExpression,
+              targetExpression,
             );
+
+            if (resolveStudySetId != null && addToResolveStudySet) {
+              await _studySetRepository.addVocabularyItemToStudySet(
+                vocabularyItem.id!,
+                resolveStudySetId,
+              );
+            }
+
+            return true;
           },
         );
       },
     );
 
-    sourceController.dispose();
-    targetController.dispose();
-
-    if (saved && mounted) {
+    if (saved == true && mounted) {
       await _loadVocabulary();
     }
   }
@@ -375,177 +606,108 @@ class _VocabularyManagementScreenState
   }
 
   Future<void> _showCreateDialog() async {
-    final sourceController = TextEditingController();
-    final targetController = TextEditingController();
+    final currentStudySet = _currentStudySetFilter;
 
-    try {
-      await showDialog<void>(
-        context: context,
-        builder: (dialogContext) {
-          return StatefulBuilder(
-            builder: (context, setDialogState) {
-              final currentStudySet = _currentStudySetFilter;
-              bool addToCurrentStudySet =
-                  currentStudySet != null && !currentStudySet.isDefaultStudySet;
+    final created = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) {
+        return _CreateVocabularyDialog(
+          currentStudySet: currentStudySet,
+          defaultStudySetLabel: _defaultStudySetLabel(),
+          onCreate: (
+            sourceExpression,
+            targetExpression,
+            addToCurrentStudySet,
+          ) async {
+            if (sourceExpression.isEmpty || targetExpression.isEmpty) {
+              if (!mounted) return false;
 
-              return AlertDialog(
-                title: const Text('Create Vocabulary'),
-                content: SingleChildScrollView(
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      const Text('Source:'),
-                      const SizedBox(height: 6),
-                      TextField(
-                        controller: sourceController,
-                        autofocus: true,
-                        textInputAction: TextInputAction.next,
-                        decoration: const InputDecoration(
-                          border: OutlineInputBorder(),
-                          isDense: true,
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                      const Text('Target:'),
-                      const SizedBox(height: 6),
-                      TextField(
-                        controller: targetController,
-                        textInputAction: TextInputAction.done,
-                        decoration: const InputDecoration(
-                          border: OutlineInputBorder(),
-                          isDense: true,
-                        ),
-                      ),
-                      const SizedBox(height: 16),
-                      Align(
-                        alignment: Alignment.centerLeft,
-                        child: Text(
-                          currentStudySet == null
-                              ? 'Study Set: ${_defaultStudySetLabel()}'
-                              : 'Study Set: ${currentStudySet.isDefaultStudySet ? '★ ${currentStudySet.name}' : currentStudySet.name}',
-                        ),
-                      ),
-                      if (currentStudySet != null &&
-                          !currentStudySet.isDefaultStudySet)
-                        CheckboxListTile(
-                          contentPadding: EdgeInsets.zero,
-                          title: const Text('Add to this Study Set'),
-                          value: addToCurrentStudySet,
-                          onChanged: (value) {
-                            setDialogState(() {
-                              addToCurrentStudySet = value ?? false;
-                            });
-                          },
-                        ),
-                    ],
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('Source and Target are required.'),
+                ),
+              );
+              return false;
+            }
+
+            final configuration =
+                await _configurationRepository.getConfiguration();
+
+            if (configuration?.currentLanguagePairId == null) {
+              if (!mounted) return false;
+
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('No Language Pair is currently selected.'),
+                ),
+              );
+              return false;
+            }
+
+            final languagePairId = configuration!.currentLanguagePairId!;
+
+            final exists =
+                await _vocabularyRepository.sourceExpressionExists(
+              languagePairId,
+              sourceExpression,
+            );
+
+            if (exists) {
+              if (!mounted) return false;
+
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text(
+                    'A vocabulary item with this Source already exists.',
                   ),
                 ),
-                actions: [
-                  TextButton(
-                    onPressed: () => Navigator.pop(dialogContext),
-                    child: const Text('Cancel'),
-                  ),
-                  FilledButton(
-                    onPressed: () async {
-                      final sourceExpression = sourceController.text.trim();
-                      final targetExpression = targetController.text.trim();
-
-                      if (sourceExpression.isEmpty || targetExpression.isEmpty) {
-                        ScaffoldMessenger.of(this.context).showSnackBar(
-                          const SnackBar(
-                            content: Text('Source and Target are required.'),
-                          ),
-                        );
-                        return;
-                      }
-
-                      final configuration =
-                          await _configurationRepository.getConfiguration();
-                      if (configuration?.currentLanguagePairId == null) {
-                        ScaffoldMessenger.of(this.context).showSnackBar(
-                          const SnackBar(
-                            content: Text('No Language Pair is currently selected.'),
-                          ),
-                        );
-                        return;
-                      }
-
-                      final languagePairId =
-                          configuration!.currentLanguagePairId!;
-                      final exists =
-                          await _vocabularyRepository.sourceExpressionExists(
-                        languagePairId,
-                        sourceExpression,
-                      );
-
-                      if (exists) {
-                        ScaffoldMessenger.of(this.context).showSnackBar(
-                          const SnackBar(
-                            content: Text(
-                              'A vocabulary item with this Source already exists.',
-                            ),
-                          ),
-                        );
-                        return;
-                      }
-
-                      final vocabularyItem = VocabularyItem(
-                        languageCombinationId: languagePairId,
-                        sourceExpression: sourceExpression,
-                        targetExpression: targetExpression,
-                        learningState: LearningState.newItem,
-                        learningTimestamp: null,
-                      );
-
-                      final vocabularyItemId =
-                          await _vocabularyRepository.insertVocabularyItem(
-                        vocabularyItem,
-                      );
-
-                      final repositoryStudySet = _studySets.firstWhere(
-                        (studySet) => studySet.isDefaultStudySet,
-                        orElse: () => throw StateError(
-                          'Repository Study Set not found for current Language Pair.',
-                        ),
-                      );
-
-                      // Every vocabulary item belongs to the Repository.
-                      if (repositoryStudySet.id != null) {
-                        await _studySetRepository.addVocabularyItemToStudySet(
-                          vocabularyItemId,
-                          repositoryStudySet.id!,
-                        );
-                      }
-
-                      if (addToCurrentStudySet && currentStudySet?.id != null) {
-                        await _studySetRepository.addVocabularyItemToStudySet(
-                          vocabularyItemId,
-                          currentStudySet!.id!,
-                        );
-                      }
-
-                      if (!dialogContext.mounted) return;
-                      Navigator.pop(dialogContext);
-                      await _loadVocabulary();
-                    },
-                    child: const Text('Create'),
-                  ),
-                ],
               );
-            },
-          );
-        },
-      );
-    } finally {
-      // On iOS the dialog route can still be completing its transition or
-      // final text-field gesture when showDialog returns. Dispose the
-      // controllers on the next frame so no TextField can access a disposed
-      // controller during that final transition.
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        sourceController.dispose();
-        targetController.dispose();
-      });
+              return false;
+            }
+
+            final vocabularyItem = VocabularyItem(
+              languageCombinationId: languagePairId,
+              sourceExpression: sourceExpression,
+              targetExpression: targetExpression,
+              learningState: LearningState.newItem,
+              learningTimestamp: null,
+            );
+
+            final vocabularyItemId =
+                await _vocabularyRepository.insertVocabularyItem(
+              vocabularyItem,
+            );
+
+            final repositoryStudySet = _studySets.firstWhere(
+              (studySet) => studySet.isDefaultStudySet,
+              orElse: () => throw StateError(
+                'Repository Study Set not found for current Language Pair.',
+              ),
+            );
+
+            // Every vocabulary item belongs to the Repository.
+            if (repositoryStudySet.id != null) {
+              await _studySetRepository.addVocabularyItemToStudySet(
+                vocabularyItemId,
+                repositoryStudySet.id!,
+              );
+            }
+
+            if (addToCurrentStudySet && currentStudySet?.id != null) {
+              await _studySetRepository.addVocabularyItemToStudySet(
+                vocabularyItemId,
+                currentStudySet!.id!,
+              );
+            }
+
+            return true;
+          },
+        );
+      },
+    );
+
+    if (created == true && mounted) {
+      await _loadVocabulary();
     }
   }
 
@@ -935,23 +1097,7 @@ class _VocabularyManagementScreenState
         });
       },
       child: Scaffold(
-        appBar: AppBar(
-          title: _currentLanguageCombination == null
-              ? const Text('Vocabulary Management')
-              : Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text('Vocabulary Management'),
-                    Text(
-                      '${_currentLanguageCombination!.sourceLanguage} → ${_currentLanguageCombination!.targetLanguage}',
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(fontSize: 12),
-                    ),
-                  ],
-                ),
-        ),
+        appBar: AppBar(title: const Text('Vocabulary Management')),
       body: Column(
         children: [
           Padding(
@@ -1116,6 +1262,18 @@ class _VocabularyManagementScreenState
                 ),
                 ElevatedButton(
                   onPressed: () {
+                    if (defaultTargetPlatform == TargetPlatform.iOS) {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => MobileManageMembershipScreen(
+                            initialStudySetId: _currentStudySetFilter?.id,
+                          ),
+                        ),
+                      );
+                      return;
+                    }
+
                     setState(() {
                       _studySetMode = !_studySetMode;
 
@@ -1129,39 +1287,42 @@ class _VocabularyManagementScreenState
                     _studySetMode ? 'Done' : 'Manage Membership...',
                   ),
                 ),
-                ElevatedButton(
-                  onPressed: _selectionCount == 0
-                      ? null
-                      : () async {
-                          await _applyLearningStateToSelectedItems(
-                            LearningState.deferred,
-                            'Defer...',
-                          );
-                        },
-                  child: const Text('Defer...'),
-                ),
-                ElevatedButton(
-                  onPressed: _selectionCount == 0
-                      ? null
-                      : () async {
-                          await _applyLearningStateToSelectedItems(
-                            LearningState.mastered,
-                            'Master...',
-                          );
-                        },
-                  child: const Text('Master...'),
-                ),
-                ElevatedButton(
-                  onPressed: _selectionCount == 0
-                      ? null
-                      : () async {
-                          await _applyLearningStateToSelectedItems(
-                            LearningState.newItem,
-                            'Activate...',
-                          );
-                        },
-                  child: const Text('Activate...'),
-                ),
+                if (!_studySetMode)
+                  ElevatedButton(
+                    onPressed: _selectionCount == 0
+                        ? null
+                        : () async {
+                            await _applyLearningStateToSelectedItems(
+                              LearningState.deferred,
+                              'Defer...',
+                            );
+                          },
+                    child: const Text('Defer...'),
+                  ),
+                if (!_studySetMode)
+                  ElevatedButton(
+                    onPressed: _selectionCount == 0
+                        ? null
+                        : () async {
+                            await _applyLearningStateToSelectedItems(
+                              LearningState.mastered,
+                              'Master...',
+                            );
+                          },
+                    child: const Text('Master...'),
+                  ),
+                if (!_studySetMode)
+                  ElevatedButton(
+                    onPressed: _selectionCount == 0
+                        ? null
+                        : () async {
+                            await _applyLearningStateToSelectedItems(
+                              LearningState.newItem,
+                              'Activate...',
+                            );
+                          },
+                    child: const Text('Activate...'),
+                  ),
               ],
             ),
           ),

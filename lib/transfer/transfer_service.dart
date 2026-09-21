@@ -486,7 +486,7 @@ class TransferService {
 
       await txn.insert('Configuration', {
         'ConfigurationID': 1,
-        'CurrentLanguagePairID': null,
+        'CurrentLanguageCombinationID': null,
         'CurrentStudySetID': null,
       });
     });

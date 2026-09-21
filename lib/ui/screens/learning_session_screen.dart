@@ -214,159 +214,230 @@ class _LearningSessionScreenState extends State<LearningSessionScreen> {
             builder: (dialogContext, setDialogState) {
               return AlertDialog(
                 title: const Text('Edit Vocabulary'),
-                content: SizedBox(
-                  width: 720,
-                  child: ConstrainedBox(
-                    constraints: const BoxConstraints(maxHeight: 460),
-                    child: Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Expanded(
-                          flex: 5,
-                          child: Column(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              TextField(
-                                controller: sourceController,
-                                autofocus: true,
-                                decoration: const InputDecoration(
-                                  labelText: 'Source',
-                                  border: OutlineInputBorder(),
+                content: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 720),
+                  child: LayoutBuilder(
+                    builder: (context, constraints) {
+                      final compact = constraints.maxWidth < 600;
+
+                      Widget buildFields() {
+                        return Column(
+                          mainAxisSize: MainAxisSize.min,
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            TextField(
+                              controller: sourceController,
+                              autofocus: true,
+                              decoration: const InputDecoration(
+                                labelText: 'Source',
+                                border: OutlineInputBorder(),
+                              ),
+                            ),
+                            const SizedBox(height: 12),
+                            TextField(
+                              controller: targetController,
+                              maxLines: 3,
+                              decoration: const InputDecoration(
+                                labelText: 'Target',
+                                border: OutlineInputBorder(),
+                              ),
+                            ),
+                            const SizedBox(height: 12),
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                TextButton(
+                                  onPressed: () =>
+                                      Navigator.pop(dialogContext, false),
+                                  child: const Text('Cancel'),
                                 ),
-                              ),
-                              const SizedBox(height: 12),
-                              TextField(
-                                controller: targetController,
-                                maxLines: 3,
-                                decoration: const InputDecoration(
-                                  labelText: 'Target',
-                                  border: OutlineInputBorder(),
+                                const SizedBox(width: 8),
+                                FilledButton(
+                                  onPressed: () async {
+                                    final source =
+                                        sourceController.text.trim();
+                                    final target =
+                                        targetController.text.trim();
+                                    if (source.isEmpty || target.isEmpty) {
+                                      return;
+                                    }
+
+                                    await _vocabularyRepository
+                                        .updateVocabularyExpressions(
+                                      item.id!,
+                                      source,
+                                      target,
+                                    );
+
+                                    final currentMemberships =
+                                        await _studySetRepository
+                                            .getStudySetIdsForVocabularyItem(
+                                      item.id!,
+                                    );
+                                    final currentIds =
+                                        currentMemberships.toSet();
+
+                                    for (final studySetId in editableStudySets
+                                        .map((studySet) => studySet.id)
+                                        .whereType<int>()) {
+                                      final shouldBelong =
+                                          selectedStudySetIds
+                                              .contains(studySetId);
+                                      final currentlyBelongs =
+                                          currentIds.contains(studySetId);
+
+                                      if (shouldBelong && !currentlyBelongs) {
+                                        await _studySetRepository
+                                            .addVocabularyItemToStudySet(
+                                          item.id!,
+                                          studySetId,
+                                        );
+                                      } else if (!shouldBelong &&
+                                          currentlyBelongs) {
+                                        await _studySetRepository
+                                            .removeVocabularyItemFromStudySet(
+                                          item.id!,
+                                          studySetId,
+                                        );
+                                      }
+                                    }
+
+                                    if (dialogContext.mounted) {
+                                      Navigator.pop(dialogContext, true);
+                                    }
+                                  },
+                                  child: const Text('Save'),
                                 ),
-                              ),
-                              const SizedBox(height: 12),
-                              Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  TextButton(
-                                    onPressed: () =>
-                                        Navigator.pop(dialogContext, false),
-                                    child: const Text('Cancel'),
-                                  ),
-                                  const SizedBox(width: 8),
-                                  FilledButton(
-                                    onPressed: () async {
-                                      final source = sourceController.text.trim();
-                                      final target = targetController.text.trim();
-                                      if (source.isEmpty || target.isEmpty) return;
+                              ],
+                            ),
+                          ],
+                        );
+                      }
 
-                                      await _vocabularyRepository
-                                          .updateVocabularyExpressions(
-                                        item.id!,
-                                        source,
-                                        target,
-                                      );
-
-                                      final currentMemberships =
-                                          await _studySetRepository
-                                              .getStudySetIdsForVocabularyItem(
-                                                  item.id!);
-                                      final currentIds = currentMemberships.toSet();
-
-                                      for (final studySetId in editableStudySets
-                                          .map((studySet) => studySet.id)
-                                          .whereType<int>()) {
-                                        final shouldBelong =
-                                            selectedStudySetIds.contains(studySetId);
-                                        final currentlyBelongs =
-                                            currentIds.contains(studySetId);
-
-                                        if (shouldBelong && !currentlyBelongs) {
-                                          await _studySetRepository
-                                              .addVocabularyItemToStudySet(
-                                            item.id!,
-                                            studySetId,
-                                          );
-                                        } else if (!shouldBelong && currentlyBelongs) {
-                                          await _studySetRepository
-                                              .removeVocabularyItemFromStudySet(
-                                            item.id!,
-                                            studySetId,
-                                          );
-                                        }
-                                      }
-
-                                      if (dialogContext.mounted) {
-                                        Navigator.pop(dialogContext, true);
-                                      }
-                                    },
-                                    child: const Text('Save'),
-                                  ),
-                                ],
-                              ),
-                            ],
-                          ),
-                        ),
-                        const SizedBox(width: 20),
-                        Expanded(
-                          flex: 4,
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
+                      Widget buildStudySets() {
+                        return Column(
+                          mainAxisSize: MainAxisSize.min,
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text(
+                              'Study Sets',
+                              style: TextStyle(fontWeight: FontWeight.bold),
+                            ),
+                            const SizedBox(height: 6),
+                            if (editableStudySets.isEmpty)
                               const Text(
-                                'Study Sets',
-                                style: TextStyle(fontWeight: FontWeight.bold),
-                              ),
-                              const SizedBox(height: 6),
-                              Expanded(
-                                child: editableStudySets.isEmpty
-                                    ? const Align(
-                                        alignment: Alignment.topLeft,
-                                        child: Text(
-                                          'No user-defined Study Sets available.',
-                                        ),
-                                      )
-                                    : SingleChildScrollView(
-                                        child: Column(
-                                          children: editableStudySets.map((studySet) {
-                                            final studySetId = studySet.id;
-                                            return CheckboxListTile(
-                                              dense: true,
-                                              contentPadding: EdgeInsets.zero,
-                                              controlAffinity:
-                                                  ListTileControlAffinity.leading,
-                                              value: studySetId != null &&
-                                                  selectedStudySetIds
-                                                      .contains(studySetId),
-                                              title: Text(
+                                'No user-defined Study Sets available.',
+                              )
+                            else
+                              ConstrainedBox(
+                                constraints: BoxConstraints(
+                                  maxHeight: compact ? 180 : 280,
+                                ),
+                                child: SingleChildScrollView(
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children:
+                                        editableStudySets.map((studySet) {
+                                      final studySetId = studySet.id;
+
+                                      return InkWell(
+                                        onTap: studySetId == null
+                                            ? null
+                                            : () {
+                                                setDialogState(() {
+                                                  if (selectedStudySetIds
+                                                      .contains(studySetId)) {
+                                                    selectedStudySetIds
+                                                        .remove(studySetId);
+                                                  } else {
+                                                    selectedStudySetIds
+                                                        .add(studySetId);
+                                                  }
+                                                });
+                                              },
+                                        child: Row(
+                                          children: [
+                                            SizedBox(
+                                              width: 32,
+                                              height: 32,
+                                              child: Checkbox(
+                                                materialTapTargetSize:
+                                                    MaterialTapTargetSize
+                                                        .shrinkWrap,
+                                                visualDensity:
+                                                    VisualDensity.compact,
+                                                value: studySetId != null &&
+                                                    selectedStudySetIds
+                                                        .contains(studySetId),
+                                                onChanged: studySetId == null
+                                                    ? null
+                                                    : (checked) {
+                                                        setDialogState(() {
+                                                          if (checked == true) {
+                                                            selectedStudySetIds
+                                                                .add(studySetId);
+                                                          } else {
+                                                            selectedStudySetIds
+                                                                .remove(
+                                                                    studySetId);
+                                                          }
+                                                        });
+                                                      },
+                                              ),
+                                            ),
+                                            const SizedBox(width: 4),
+                                            Expanded(
+                                              child: Text(
                                                 studySet.name,
                                                 maxLines: 1,
                                                 overflow: TextOverflow.ellipsis,
                                               ),
-                                              onChanged: studySetId == null
-                                                  ? null
-                                                  : (checked) {
-                                                      setDialogState(() {
-                                                        if (checked == true) {
-                                                          selectedStudySetIds
-                                                              .add(studySetId);
-                                                        } else {
-                                                          selectedStudySetIds
-                                                              .remove(studySetId);
-                                                        }
-                                                      });
-                                                    },
-                                            );
-                                          }).toList(),
+                                            ),
+                                          ],
                                         ),
-                                      ),
+                                      );
+                                    }).toList(),
+                                  ),
+                                ),
                               ),
-                            ],
-                          ),
-                        ),
-                      ],
-                    ),
+                          ],
+                        );
+                      }
+
+                      return SingleChildScrollView(
+                        child: compact
+                            ? Column(
+                                mainAxisSize: MainAxisSize.min,
+                                crossAxisAlignment: CrossAxisAlignment.stretch,
+                                children: [
+                                  buildFields(),
+                                  const SizedBox(height: 20),
+                                  buildStudySets(),
+                                ],
+                              )
+                            : Row(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Expanded(
+                                    flex: 5,
+                                    child: buildFields(),
+                                  ),
+                                  const SizedBox(width: 20),
+                                  Expanded(
+                                    flex: 4,
+                                    child: buildStudySets(),
+                                  ),
+                                ],
+                              ),
+                      );
+                    },
                   ),
                 ),
+                scrollable: true,
+                insetPadding:
+                    const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
                 contentPadding: const EdgeInsets.fromLTRB(24, 20, 24, 20),
               );
             },
