@@ -3,8 +3,10 @@ import 'package:flutter/material.dart';
 
 import '../../domain/vocabulary_item.dart';
 import '../../domain/learning_state.dart';
+import '../../domain/language_combination.dart';
 import '../../domain/study_set.dart';
 import '../../repository/sqlite_configuration_repository.dart';
+import '../../repository/sqlite_language_combination_repository.dart';
 import '../../repository/sqlite_study_set_repository.dart';
 import '../../repository/sqlite_vocabulary_repository.dart';
 import 'package:vocabulary_trainer/domain/configuration.dart';
@@ -355,6 +357,9 @@ class _VocabularyManagementScreenState
   final SQLiteConfigurationRepository _configurationRepository =
       SQLiteConfigurationRepository();
 
+  final SQLiteLanguageCombinationRepository _languageRepository =
+      SQLiteLanguageCombinationRepository();
+
   static const double _tableFontSize = 12;
   static const double _headerFontSize = 12;
 
@@ -363,6 +368,9 @@ class _VocabularyManagementScreenState
   static const double _headerVerticalPadding = 4;
 
   List<VocabularyItem> _vocabularyItems = [];
+
+  List<LanguageCombination> _languagePairs = [];
+  LanguageCombination? _selectedLanguagePair;
 
   List<StudySet> _studySets = [];
 
@@ -433,22 +441,53 @@ class _VocabularyManagementScreenState
     _loadVocabulary();
   }
 
-  Future<void> _loadVocabulary() async {
+  Future<void> _loadVocabulary({bool preserveStudySetFilter = true}) async {
     final configuration = await _configurationRepository.getConfiguration();
+    final languagePairs = await _languageRepository.getAll();
 
-    if (configuration == null || configuration.currentLanguagePairId == null) {
+    LanguageCombination? selectedPair;
+    final configuredPairId = configuration?.currentLanguagePairId;
+    if (configuredPairId != null) {
+      for (final pair in languagePairs) {
+        if (pair.id == configuredPairId) {
+          selectedPair = pair;
+          break;
+        }
+      }
+    }
+    selectedPair ??= languagePairs.isNotEmpty ? languagePairs.first : null;
+
+    if (selectedPair?.id == null) {
+      if (!mounted) return;
+      setState(() {
+        _languagePairs = languagePairs;
+        _selectedLanguagePair = null;
+        _vocabularyItems = [];
+        _studySets = [];
+        _currentStudySetFilter = null;
+        _visibleVocabularyItemIds = {};
+      });
       return;
     }
 
+    // Keep Configuration aligned with the Language Pair shown here so the
+    // Learning Center picks up the same context when leaving this screen.
+    if (configuration != null &&
+        configuration.currentLanguagePairId != selectedPair!.id) {
+      await _configurationRepository.saveConfiguration(
+        Configuration(
+          id: configuration.id,
+          currentLanguagePairId: selectedPair.id,
+          currentStudySetId: configuration.currentStudySetId,
+        ),
+      );
+    }
+
     final vocabulary = await _vocabularyRepository
-        .getVocabularyItemsByLanguageCombinationId(
-          configuration.currentLanguagePairId!,
-        );
+        .getVocabularyItemsByLanguageCombinationId(selectedPair!.id!);
 
     final studySets = await _studySetRepository
-        .getStudySetsByLanguageCombinationId(
-          configuration.currentLanguagePairId!,
-        );
+        .getStudySetsByLanguageCombinationId(selectedPair.id!);
 
     _vocabularyItems = vocabulary;
     await _loadStudySetMemberships();
@@ -456,14 +495,29 @@ class _VocabularyManagementScreenState
     if (!mounted) return;
 
     setState(() {
+      _languagePairs = languagePairs;
+      _selectedLanguagePair = selectedPair;
       _studySets = studySets;
 
-      if (_currentStudySetFilter == null && studySets.isNotEmpty) {
-        _currentStudySetFilter = studySets.firstWhere(
-          (studySet) => studySet.id == configuration.currentStudySetId,
-          orElse: () => studySets.first,
-        );
+      final previousFilterId =
+          preserveStudySetFilter ? _currentStudySetFilter?.id : null;
+      StudySet? nextFilter;
+      if (previousFilterId != null) {
+        for (final studySet in studySets) {
+          if (studySet.id == previousFilterId) {
+            nextFilter = studySet;
+            break;
+          }
+        }
       }
+      nextFilter ??= studySets.isEmpty
+          ? null
+          : studySets.firstWhere(
+              (studySet) => studySet.id == configuration?.currentStudySetId,
+              orElse: () => studySets.first,
+            );
+
+      _currentStudySetFilter = nextFilter;
 
       if (_currentStudySetFilter != null) {
         _visibleVocabularyItemIds = _studySetMemberships.entries
@@ -505,6 +559,33 @@ class _VocabularyManagementScreenState
         });
       }
     }
+  }
+
+  Future<void> _selectLanguagePair(LanguageCombination pair) async {
+    if (pair.id == null || pair.id == _selectedLanguagePair?.id) return;
+
+    final configuration = await _configurationRepository.getConfiguration();
+    final studySets = await _studySetRepository
+        .getStudySetsByLanguageCombinationId(pair.id!);
+
+    final preferredStudySet = studySets.isEmpty
+        ? null
+        : studySets.firstWhere(
+            (studySet) => studySet.isDefaultStudySet,
+            orElse: () => studySets.first,
+          );
+
+    await _configurationRepository.saveConfiguration(
+      Configuration(
+        id: configuration?.id ?? 1,
+        currentLanguagePairId: pair.id,
+        currentStudySetId: preferredStudySet?.id,
+      ),
+    );
+
+    _currentStudySetFilter = null;
+    _clearSelection();
+    await _loadVocabulary(preserveStudySetFilter: false);
   }
 
   @override
@@ -719,9 +800,13 @@ class _VocabularyManagementScreenState
           title: const Text('Delete'),
           content: Text(
             _selectionCount == 1
-                ? 'Delete the selected vocabulary item?\n\n'
+                ? 'Delete the selected vocabulary item permanently?\n\n'
+                      'It will be removed from the Repository and from every '
+                      'Study Set, not only from the current Study Set filter.\n\n'
                       'This action cannot be undone.'
-                : 'Delete the $_selectionCount selected vocabulary items?\n\n'
+                : 'Delete the $_selectionCount selected vocabulary items permanently?\n\n'
+                      'They will be removed from the Repository and from every '
+                      'Study Set, not only from the current Study Set filter.\n\n'
                       'This action cannot be undone.',
           ),
           actions: [
@@ -1110,6 +1195,33 @@ class _VocabularyManagementScreenState
                 Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
+                    const Text('Language Pair:'),
+                    const SizedBox(width: 12),
+                    CompactDropdown<int>(
+                      value: _selectedLanguagePair?.id,
+                      items: _languagePairs
+                          .where((pair) => pair.id != null)
+                          .map((pair) {
+                        return DropdownMenuItem<int>(
+                          value: pair.id!,
+                          child: Text(
+                            '${pair.sourceLanguage} → ${pair.targetLanguage}',
+                          ),
+                        );
+                      }).toList(),
+                      onChanged: (languagePairId) async {
+                        if (languagePairId == null) return;
+                        final pair = _languagePairs.firstWhere(
+                          (candidate) => candidate.id == languagePairId,
+                        );
+                        await _selectLanguagePair(pair);
+                      },
+                    ),
+                  ],
+                ),
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
                     const Text('Study Set:'),
                     const SizedBox(width: 12),
                     CompactDropdown<int>(
@@ -1142,6 +1254,7 @@ class _VocabularyManagementScreenState
                             Configuration(
                               id: configuration.id,
                               currentLanguagePairId:
+                                  _selectedLanguagePair?.id ??
                                   configuration.currentLanguagePairId,
                               currentStudySetId: studySet.id,
                             ),
@@ -1261,9 +1374,9 @@ class _VocabularyManagementScreenState
                   child: const Text('Delete...'),
                 ),
                 ElevatedButton(
-                  onPressed: () {
+                  onPressed: () async {
                     if (defaultTargetPlatform == TargetPlatform.iOS) {
-                      Navigator.push(
+                      await Navigator.push(
                         context,
                         MaterialPageRoute(
                           builder: (_) => MobileManageMembershipScreen(
@@ -1271,6 +1384,9 @@ class _VocabularyManagementScreenState
                           ),
                         ),
                       );
+                      if (mounted) {
+                        await _loadVocabulary();
+                      }
                       return;
                     }
 

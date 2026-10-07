@@ -1120,14 +1120,14 @@ class _LearningSessionScreenState extends State<LearningSessionScreen> {
               _responseChip(
                 label: 'Done for now',
                 selected: _intensiveResponse != null,
-                onSelected: (_) {
+                onSelected: (_) async {
+                  if (_busy) return;
                   setState(() {
                     _intensiveResponse =
-                        _intensiveResponse ==
-                                IntensiveLearningResponse.doneForNow
-                            ? null
-                            : IntensiveLearningResponse.doneForNow;
+                        IntensiveLearningResponse.doneForNow;
                   });
+                  // Set aside and advance immediately; Next is not required.
+                  await _next();
                 },
                 width: compact ? double.infinity : null,
               )

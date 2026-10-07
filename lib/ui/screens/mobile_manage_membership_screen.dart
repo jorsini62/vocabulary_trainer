@@ -116,13 +116,24 @@ class _MobileManageMembershipScreenState
   List<VocabularyItem> get _filteredVocabularyItems {
     final searchText = _searchController.text.trim().toLowerCase();
 
-    if (searchText.isEmpty) {
-      return _vocabularyItems;
-    }
-
     return _vocabularyItems.where((item) {
-      return item.sourceExpression.toLowerCase().contains(searchText) ||
-          item.targetExpression.toLowerCase().contains(searchText);
+      if (searchText.isNotEmpty) {
+        final matchesSearch =
+            item.sourceExpression.toLowerCase().contains(searchText) ||
+            item.targetExpression.toLowerCase().contains(searchText);
+        if (!matchesSearch) return false;
+      }
+
+      // Remove: only show items that already belong to the selected Study Set.
+      // Add: show all items; those already in the Study Set are greyed out.
+      if (_action == _MembershipAction.remove &&
+          _selectedStudySet?.id != null &&
+          item.id != null) {
+        final memberships = _studySetMemberships[item.id!] ?? <int>{};
+        return memberships.contains(_selectedStudySet!.id);
+      }
+
+      return true;
     }).toList();
   }
 
@@ -457,15 +468,28 @@ class _MobileManageMembershipScreenState
       );
     }
 
-    if (_filteredVocabularyItems.every((item) => !_isEligible(item))) {
+    if (_filteredVocabularyItems.isEmpty) {
       final message = _action == _MembershipAction.add
-          ? 'All Vocabulary Items shown are already in this Study Set.'
-          : 'No Vocabulary Items shown belong to this Study Set.';
+          ? 'No Vocabulary Items match the current search.'
+          : 'This Study Set has no Vocabulary Items to remove.';
 
       return Center(
         child: Padding(
           padding: const EdgeInsets.all(24),
           child: Text(message, textAlign: TextAlign.center),
+        ),
+      );
+    }
+
+    if (_action == _MembershipAction.add &&
+        _filteredVocabularyItems.every((item) => !_isEligible(item))) {
+      return const Center(
+        child: Padding(
+          padding: EdgeInsets.all(24),
+          child: Text(
+            'All Vocabulary Items shown are already in this Study Set.',
+            textAlign: TextAlign.center,
+          ),
         ),
       );
     }
@@ -516,7 +540,9 @@ class _MobileManageMembershipScreenState
                     ),
                   ),
                 Expanded(
-                  child: filteredItems.isEmpty
+                  child: (_action == null || _selectedStudySet == null)
+                      ? _buildEmptyState()
+                      : filteredItems.isEmpty
                       ? _buildEmptyState()
                       : ListView.builder(
                           itemCount: filteredItems.length,
