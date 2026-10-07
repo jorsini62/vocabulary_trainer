@@ -1,8 +1,14 @@
+import 'dart:io';
+
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:macos_security_scoped_bookmarks/macos_security_scoped_bookmarks.dart';
 
 import '../../domain/configuration.dart';
 import '../../domain/language_combination.dart';
 import '../../domain/study_set.dart';
+import '../../repository/database_backup_service.dart';
+import '../../repository/ios_backup_directory.dart';
 import '../../repository/sqlite_configuration_repository.dart';
 import '../../repository/sqlite_language_combination_repository.dart';
 import '../../repository/sqlite_study_set_repository.dart';
@@ -26,11 +32,14 @@ class _TransferImportCenterScreenState
   final _languageRepository = SQLiteLanguageCombinationRepository();
   final _studySetRepository = SQLiteStudySetRepository();
   final _configurationRepository = SQLiteConfigurationRepository();
+  final _databaseBackupService = DatabaseBackupService();
 
   List<LanguageCombination> _languagePairs = [];
   List<StudySet> _studySets = [];
   LanguageCombination? _selectedLanguagePair;
   StudySet? _selectedStudySet;
+  String? _backupLocation;
+  bool _usingDefaultBackupLocation = false;
   bool _loading = true;
 
   @override
@@ -43,6 +52,8 @@ class _TransferImportCenterScreenState
     final pairs = await _languageRepository.getAll();
     final allStudySets = await _studySetRepository.getAllStudySets();
     final configuration = await _configurationRepository.getConfiguration();
+    final defaultBackupPath =
+        await _databaseBackupService.defaultBackupDirectoryPath();
 
     LanguageCombination? selectedPair;
     StudySet? selectedStudySet;
@@ -66,8 +77,8 @@ class _TransferImportCenterScreenState
     final filteredSets = selectedPair == null
         ? <StudySet>[]
         : allStudySets
-            .where((set) => set.languageCombinationId == selectedPair!.id)
-            .toList();
+              .where((set) => set.languageCombinationId == selectedPair!.id)
+              .toList();
 
     final currentStudySetId = configuration?.currentStudySetId;
     if (currentStudySetId != null) {
@@ -79,15 +90,21 @@ class _TransferImportCenterScreenState
       }
     }
 
-    selectedStudySet ??=
-        filteredSets.isNotEmpty ? filteredSets.first : null;
+    selectedStudySet ??= filteredSets.isNotEmpty ? filteredSets.first : null;
+
+    final configuredBackup = configuration?.backupLocation?.trim();
+    final usingDefault =
+        configuredBackup == null || configuredBackup.isEmpty;
 
     if (!mounted) return;
+
     setState(() {
       _languagePairs = pairs;
       _selectedLanguagePair = selectedPair;
       _studySets = filteredSets;
       _selectedStudySet = selectedStudySet;
+      _backupLocation = usingDefault ? defaultBackupPath : configuredBackup;
+      _usingDefaultBackupLocation = usingDefault;
       _loading = false;
     });
   }
@@ -99,6 +116,7 @@ class _TransferImportCenterScreenState
     final sets = allStudySets
         .where((set) => set.languageCombinationId == value.id)
         .toList();
+
     final selectedStudySet = sets.isNotEmpty ? sets.first : null;
 
     await _configurationRepository.saveConfiguration(
@@ -110,6 +128,7 @@ class _TransferImportCenterScreenState
     );
 
     if (!mounted) return;
+
     setState(() {
       _selectedLanguagePair = value;
       _studySets = sets;
@@ -129,33 +148,194 @@ class _TransferImportCenterScreenState
     );
 
     if (!mounted) return;
+
     setState(() => _selectedStudySet = value);
   }
 
-  Future<void> _open(TransferScreenMode mode) async {
-    await Navigator.of(context).push(
-      MaterialPageRoute<void>(
-        builder: (_) => TransferScreen(mode: mode),
-      ),
+  Future<void> _setBackupLocation() async {
+    try {
+      if (Platform.isIOS) {
+        final picked = await IosBackupDirectory.pickDirectory();
+        if (picked == null) {
+          await _showMessage('No folder was selected.');
+          return;
+        }
+
+        await IosBackupDirectory.withBookmarkAccess(
+          storedBookmark: IosBackupDirectory.encodeBookmark(picked.bookmark),
+          action: (directoryPath) async {
+            final probe = File(
+              '$directoryPath/.vocabulary_trainer_backup_write_test',
+            );
+            await probe.writeAsString('ok');
+            await probe.delete();
+          },
+        );
+
+        await _configurationRepository.saveBackupSettings(
+          configurationId: 1,
+          currentLanguagePairId: _selectedLanguagePair?.id,
+          currentStudySetId: _selectedStudySet?.id,
+          backupLocation: picked.path,
+          backupBookmark: IosBackupDirectory.encodeBookmark(picked.bookmark),
+        );
+
+        if (!mounted) return;
+
+        setState(() {
+          _backupLocation = picked.path;
+          _usingDefaultBackupLocation = false;
+        });
+
+        await _showMessage(
+          'Backup location saved.\n\n'
+          'Automatic backups (up to two rolling copies) will use this folder.\n'
+          'You can pick any folder available in the Files app, including iCloud Drive.',
+        );
+        return;
+      }
+
+      if (Platform.isAndroid) {
+        final directory =
+            await _databaseBackupService.ensureDefaultBackupDirectory();
+
+        await _configurationRepository.saveBackupSettings(
+          configurationId: 1,
+          currentLanguagePairId: _selectedLanguagePair?.id,
+          currentStudySetId: _selectedStudySet?.id,
+          backupLocation: null,
+          backupBookmark: null,
+        );
+
+        if (!mounted) return;
+
+        setState(() {
+          _backupLocation = directory.path;
+          _usingDefaultBackupLocation = true;
+        });
+
+        await _showMessage(
+          'On Android, automatic backups are currently stored in the app '
+          'Documents folder:\n\n${directory.path}',
+        );
+        return;
+      }
+
+      final selectedDirectory = await FilePicker.platform.getDirectoryPath(
+        dialogTitle: 'Select Backup Location',
+        lockParentWindow: true,
+      );
+
+      if (selectedDirectory == null) {
+        await _showMessage('No folder was selected.');
+        return;
+      }
+
+      String? bookmarkValue;
+
+      if (Platform.isMacOS) {
+        final directory = Directory(selectedDirectory);
+        final bookmark = await createBookmark(
+          directory,
+          access: MacOSSecurityScopedBookmarkAccess.readWrite,
+        );
+        bookmarkValue = bookmark.encode();
+
+        // Confirm the sandbox grant allows writing before we save the setting.
+        await withBookmarkAccess(bookmark, (resource) async {
+          final probe = File(
+            '${resource.entity.path}/.vocabulary_trainer_backup_write_test',
+          );
+          await probe.writeAsString('ok');
+          await probe.delete();
+        });
+      } else {
+        final probe = File(
+          '$selectedDirectory/.vocabulary_trainer_backup_write_test',
+        );
+        await probe.writeAsString('ok');
+        await probe.delete();
+      }
+
+      await _configurationRepository.saveBackupSettings(
+        configurationId: 1,
+        currentLanguagePairId: _selectedLanguagePair?.id,
+        currentStudySetId: _selectedStudySet?.id,
+        backupLocation: selectedDirectory,
+        backupBookmark: bookmarkValue,
+      );
+
+      if (!mounted) return;
+
+      setState(() {
+        _backupLocation = selectedDirectory;
+        _usingDefaultBackupLocation = false;
+      });
+
+      await _showMessage(
+        'Backup location saved.\n\n'
+        'Automatic backups (up to two rolling copies) will use this folder.',
+      );
+    } catch (e) {
+      if (!mounted) return;
+
+      await _showMessage(
+        'Could not use the selected folder for backups.\n\n'
+        'Please try again and grant access when prompted.\n\n'
+        'Details: $e',
+      );
+    }
+  }
+
+  Future<void> _useDefaultBackupLocation() async {
+    final directory =
+        await _databaseBackupService.ensureDefaultBackupDirectory();
+
+    await _configurationRepository.saveBackupSettings(
+      configurationId: 1,
+      currentLanguagePairId: _selectedLanguagePair?.id,
+      currentStudySetId: _selectedStudySet?.id,
+      backupLocation: null,
+      backupBookmark: null,
     );
+
+    if (!mounted) return;
+
+    setState(() {
+      _backupLocation = directory.path;
+      _usingDefaultBackupLocation = true;
+    });
+
+    await _showMessage(
+      'Automatic backups will use the app Documents folder:\n\n'
+      '${directory.path}',
+    );
+  }
+
+  Future<void> _open(TransferScreenMode mode) async {
+    await Navigator.of(
+      context,
+    ).push(MaterialPageRoute<void>(builder: (_) => TransferScreen(mode: mode)));
+
     await _loadContext();
   }
 
   Future<void> _openImportStudySetTransfer() async {
     await Navigator.of(context).push(
       MaterialPageRoute<void>(
-        builder: (_) => const TransferScreen(mode: TransferScreenMode.studySetImport),
+        builder: (_) =>
+            const TransferScreen(mode: TransferScreenMode.studySetImport),
       ),
     );
+
     await _loadContext();
   }
 
   Future<void> _openImportVocabulary() async {
     await Navigator.of(context).push(
-      MaterialPageRoute<void>(
-        builder: (_) => const VocabularyImportScreen(),
-      ),
+      MaterialPageRoute<void>(builder: (_) => const VocabularyImportScreen()),
     );
+
     await _loadContext();
   }
 
@@ -202,6 +382,14 @@ class _TransferImportCenterScreenState
                   description:
                       'Reconstruct the complete database in a new or empty installation.',
                   onPressed: () => _open(TransferScreenMode.databaseImport),
+                ),
+                const SizedBox(height: 10),
+                _BackupLocationCard(
+                  location: _backupLocation,
+                  usingDefault: _usingDefaultBackupLocation,
+                  supportsCustomFolder: !Platform.isAndroid,
+                  onSetPressed: _setBackupLocation,
+                  onUseDefaultPressed: _useDefaultBackupLocation,
                 ),
                 const SizedBox(height: 32),
                 const Divider(),
@@ -283,6 +471,99 @@ class _TransferImportCenterScreenState
       ),
     );
   }
+
+  Future<void> _showMessage(String message) async {
+    if (!mounted) return;
+
+    await showDialog<void>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Transfer & Import'),
+        content: Text(message),
+        actions: [
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('OK'),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _BackupLocationCard extends StatelessWidget {
+  const _BackupLocationCard({
+    required this.location,
+    required this.usingDefault,
+    required this.supportsCustomFolder,
+    required this.onSetPressed,
+    required this.onUseDefaultPressed,
+  });
+
+  final String? location;
+  final bool usingDefault;
+  final bool supportsCustomFolder;
+  final VoidCallback onSetPressed;
+  final VoidCallback onUseDefaultPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    final hasLocation = location != null && location!.trim().isNotEmpty;
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Backup Location',
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              hasLocation
+                  ? location!
+                  : 'No backup location has been selected.',
+            ),
+            const SizedBox(height: 4),
+            Text(
+              usingDefault
+                  ? 'Using the app Documents/Backups folder. '
+                        'Up to two rolling backups are kept, refreshed at least every 24 hours '
+                        'and after a full database restore.'
+                  : 'Custom folder. Up to two rolling backups are kept, refreshed at least '
+                        'every 24 hours and after a full database restore.',
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+            const SizedBox(height: 12),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              alignment: WrapAlignment.end,
+              children: [
+                if (supportsCustomFolder && !usingDefault)
+                  OutlinedButton(
+                    onPressed: onUseDefaultPressed,
+                    child: const Text('Use App Folder'),
+                  ),
+                FilledButton(
+                  onPressed: onSetPressed,
+                  child: Text(
+                    supportsCustomFolder
+                        ? (usingDefault
+                              ? 'Choose Backup Folder'
+                              : 'Change Backup Folder')
+                        : 'Show Backup Folder',
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }
 
 class _OperationButton extends StatelessWidget {
@@ -320,10 +601,7 @@ class _OperationButton extends StatelessWidget {
               ),
             ),
             const SizedBox(width: 16),
-            FilledButton(
-              onPressed: onPressed,
-              child: const Text('Open'),
-            ),
+            FilledButton(onPressed: onPressed, child: const Text('Open')),
           ],
         ),
       ),

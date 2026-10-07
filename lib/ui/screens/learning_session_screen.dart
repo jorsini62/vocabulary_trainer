@@ -1,6 +1,7 @@
 import 'dart:math';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../../domain/language_combination.dart';
 import '../../domain/learning_state.dart';
@@ -173,6 +174,7 @@ class _LearningSessionScreenState extends State<LearningSessionScreen> {
   }
 
   Future<void> _showAnswer() async {
+    _dismissKeyboard();
     if (_currentItem == null) return;
     await _reconcileLearningWindowAfterSettingChange();
     if (!mounted) return;
@@ -212,159 +214,230 @@ class _LearningSessionScreenState extends State<LearningSessionScreen> {
             builder: (dialogContext, setDialogState) {
               return AlertDialog(
                 title: const Text('Edit Vocabulary'),
-                content: SizedBox(
-                  width: 720,
-                  child: ConstrainedBox(
-                    constraints: const BoxConstraints(maxHeight: 460),
-                    child: Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Expanded(
-                          flex: 5,
-                          child: Column(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              TextField(
-                                controller: sourceController,
-                                autofocus: true,
-                                decoration: const InputDecoration(
-                                  labelText: 'Source',
-                                  border: OutlineInputBorder(),
+                content: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 720),
+                  child: LayoutBuilder(
+                    builder: (context, constraints) {
+                      final compact = constraints.maxWidth < 600;
+
+                      Widget buildFields() {
+                        return Column(
+                          mainAxisSize: MainAxisSize.min,
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            TextField(
+                              controller: sourceController,
+                              autofocus: true,
+                              decoration: const InputDecoration(
+                                labelText: 'Source',
+                                border: OutlineInputBorder(),
+                              ),
+                            ),
+                            const SizedBox(height: 12),
+                            TextField(
+                              controller: targetController,
+                              maxLines: 3,
+                              decoration: const InputDecoration(
+                                labelText: 'Target',
+                                border: OutlineInputBorder(),
+                              ),
+                            ),
+                            const SizedBox(height: 12),
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                TextButton(
+                                  onPressed: () =>
+                                      Navigator.pop(dialogContext, false),
+                                  child: const Text('Cancel'),
                                 ),
-                              ),
-                              const SizedBox(height: 12),
-                              TextField(
-                                controller: targetController,
-                                maxLines: 3,
-                                decoration: const InputDecoration(
-                                  labelText: 'Target',
-                                  border: OutlineInputBorder(),
+                                const SizedBox(width: 8),
+                                FilledButton(
+                                  onPressed: () async {
+                                    final source =
+                                        sourceController.text.trim();
+                                    final target =
+                                        targetController.text.trim();
+                                    if (source.isEmpty || target.isEmpty) {
+                                      return;
+                                    }
+
+                                    await _vocabularyRepository
+                                        .updateVocabularyExpressions(
+                                      item.id!,
+                                      source,
+                                      target,
+                                    );
+
+                                    final currentMemberships =
+                                        await _studySetRepository
+                                            .getStudySetIdsForVocabularyItem(
+                                      item.id!,
+                                    );
+                                    final currentIds =
+                                        currentMemberships.toSet();
+
+                                    for (final studySetId in editableStudySets
+                                        .map((studySet) => studySet.id)
+                                        .whereType<int>()) {
+                                      final shouldBelong =
+                                          selectedStudySetIds
+                                              .contains(studySetId);
+                                      final currentlyBelongs =
+                                          currentIds.contains(studySetId);
+
+                                      if (shouldBelong && !currentlyBelongs) {
+                                        await _studySetRepository
+                                            .addVocabularyItemToStudySet(
+                                          item.id!,
+                                          studySetId,
+                                        );
+                                      } else if (!shouldBelong &&
+                                          currentlyBelongs) {
+                                        await _studySetRepository
+                                            .removeVocabularyItemFromStudySet(
+                                          item.id!,
+                                          studySetId,
+                                        );
+                                      }
+                                    }
+
+                                    if (dialogContext.mounted) {
+                                      Navigator.pop(dialogContext, true);
+                                    }
+                                  },
+                                  child: const Text('Save'),
                                 ),
-                              ),
-                              const SizedBox(height: 12),
-                              Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  TextButton(
-                                    onPressed: () =>
-                                        Navigator.pop(dialogContext, false),
-                                    child: const Text('Cancel'),
-                                  ),
-                                  const SizedBox(width: 8),
-                                  FilledButton(
-                                    onPressed: () async {
-                                      final source = sourceController.text.trim();
-                                      final target = targetController.text.trim();
-                                      if (source.isEmpty || target.isEmpty) return;
+                              ],
+                            ),
+                          ],
+                        );
+                      }
 
-                                      await _vocabularyRepository
-                                          .updateVocabularyExpressions(
-                                        item.id!,
-                                        source,
-                                        target,
-                                      );
-
-                                      final currentMemberships =
-                                          await _studySetRepository
-                                              .getStudySetIdsForVocabularyItem(
-                                                  item.id!);
-                                      final currentIds = currentMemberships.toSet();
-
-                                      for (final studySetId in editableStudySets
-                                          .map((studySet) => studySet.id)
-                                          .whereType<int>()) {
-                                        final shouldBelong =
-                                            selectedStudySetIds.contains(studySetId);
-                                        final currentlyBelongs =
-                                            currentIds.contains(studySetId);
-
-                                        if (shouldBelong && !currentlyBelongs) {
-                                          await _studySetRepository
-                                              .addVocabularyItemToStudySet(
-                                            item.id!,
-                                            studySetId,
-                                          );
-                                        } else if (!shouldBelong && currentlyBelongs) {
-                                          await _studySetRepository
-                                              .removeVocabularyItemFromStudySet(
-                                            item.id!,
-                                            studySetId,
-                                          );
-                                        }
-                                      }
-
-                                      if (dialogContext.mounted) {
-                                        Navigator.pop(dialogContext, true);
-                                      }
-                                    },
-                                    child: const Text('Save'),
-                                  ),
-                                ],
-                              ),
-                            ],
-                          ),
-                        ),
-                        const SizedBox(width: 20),
-                        Expanded(
-                          flex: 4,
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
+                      Widget buildStudySets() {
+                        return Column(
+                          mainAxisSize: MainAxisSize.min,
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text(
+                              'Study Sets',
+                              style: TextStyle(fontWeight: FontWeight.bold),
+                            ),
+                            const SizedBox(height: 6),
+                            if (editableStudySets.isEmpty)
                               const Text(
-                                'Study Sets',
-                                style: TextStyle(fontWeight: FontWeight.bold),
-                              ),
-                              const SizedBox(height: 6),
-                              Expanded(
-                                child: editableStudySets.isEmpty
-                                    ? const Align(
-                                        alignment: Alignment.topLeft,
-                                        child: Text(
-                                          'No user-defined Study Sets available.',
-                                        ),
-                                      )
-                                    : SingleChildScrollView(
-                                        child: Column(
-                                          children: editableStudySets.map((studySet) {
-                                            final studySetId = studySet.id;
-                                            return CheckboxListTile(
-                                              dense: true,
-                                              contentPadding: EdgeInsets.zero,
-                                              controlAffinity:
-                                                  ListTileControlAffinity.leading,
-                                              value: studySetId != null &&
-                                                  selectedStudySetIds
-                                                      .contains(studySetId),
-                                              title: Text(
+                                'No user-defined Study Sets available.',
+                              )
+                            else
+                              ConstrainedBox(
+                                constraints: BoxConstraints(
+                                  maxHeight: compact ? 180 : 280,
+                                ),
+                                child: SingleChildScrollView(
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children:
+                                        editableStudySets.map((studySet) {
+                                      final studySetId = studySet.id;
+
+                                      return InkWell(
+                                        onTap: studySetId == null
+                                            ? null
+                                            : () {
+                                                setDialogState(() {
+                                                  if (selectedStudySetIds
+                                                      .contains(studySetId)) {
+                                                    selectedStudySetIds
+                                                        .remove(studySetId);
+                                                  } else {
+                                                    selectedStudySetIds
+                                                        .add(studySetId);
+                                                  }
+                                                });
+                                              },
+                                        child: Row(
+                                          children: [
+                                            SizedBox(
+                                              width: 32,
+                                              height: 32,
+                                              child: Checkbox(
+                                                materialTapTargetSize:
+                                                    MaterialTapTargetSize
+                                                        .shrinkWrap,
+                                                visualDensity:
+                                                    VisualDensity.compact,
+                                                value: studySetId != null &&
+                                                    selectedStudySetIds
+                                                        .contains(studySetId),
+                                                onChanged: studySetId == null
+                                                    ? null
+                                                    : (checked) {
+                                                        setDialogState(() {
+                                                          if (checked == true) {
+                                                            selectedStudySetIds
+                                                                .add(studySetId);
+                                                          } else {
+                                                            selectedStudySetIds
+                                                                .remove(
+                                                                    studySetId);
+                                                          }
+                                                        });
+                                                      },
+                                              ),
+                                            ),
+                                            const SizedBox(width: 4),
+                                            Expanded(
+                                              child: Text(
                                                 studySet.name,
                                                 maxLines: 1,
                                                 overflow: TextOverflow.ellipsis,
                                               ),
-                                              onChanged: studySetId == null
-                                                  ? null
-                                                  : (checked) {
-                                                      setDialogState(() {
-                                                        if (checked == true) {
-                                                          selectedStudySetIds
-                                                              .add(studySetId);
-                                                        } else {
-                                                          selectedStudySetIds
-                                                              .remove(studySetId);
-                                                        }
-                                                      });
-                                                    },
-                                            );
-                                          }).toList(),
+                                            ),
+                                          ],
                                         ),
-                                      ),
+                                      );
+                                    }).toList(),
+                                  ),
+                                ),
                               ),
-                            ],
-                          ),
-                        ),
-                      ],
-                    ),
+                          ],
+                        );
+                      }
+
+                      return SingleChildScrollView(
+                        child: compact
+                            ? Column(
+                                mainAxisSize: MainAxisSize.min,
+                                crossAxisAlignment: CrossAxisAlignment.stretch,
+                                children: [
+                                  buildFields(),
+                                  const SizedBox(height: 20),
+                                  buildStudySets(),
+                                ],
+                              )
+                            : Row(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Expanded(
+                                    flex: 5,
+                                    child: buildFields(),
+                                  ),
+                                  const SizedBox(width: 20),
+                                  Expanded(
+                                    flex: 4,
+                                    child: buildStudySets(),
+                                  ),
+                                ],
+                              ),
+                      );
+                    },
                   ),
                 ),
+                scrollable: true,
+                insetPadding:
+                    const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
                 contentPadding: const EdgeInsets.fromLTRB(24, 20, 24, 20),
               );
             },
@@ -765,13 +838,25 @@ class _LearningSessionScreenState extends State<LearningSessionScreen> {
     );
   }
 
+  void _dismissKeyboard() {
+    FocusScope.of(context).unfocus(disposition: UnfocusDisposition.scope);
+    SystemChannels.textInput.invokeMethod<void>('TextInput.hide');
+  }
+
   Future<void> _handleSettingEditComplete() async {
+    _dismissKeyboard();
     await _reconcileLearningWindowAfterSettingChange();
   }
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
+    final screenWidth = MediaQuery.sizeOf(context).width;
+    final compact = screenWidth < 600;
+
+    return GestureDetector(
+      behavior: HitTestBehavior.translucent,
+      onTap: _dismissKeyboard,
+      child: Scaffold(
       appBar: AppBar(
         title: const Text('Learning Session'),
         leading: IconButton(
@@ -781,31 +866,36 @@ class _LearningSessionScreenState extends State<LearningSessionScreen> {
         ),
       ),
       body: SingleChildScrollView(
-        padding: const EdgeInsets.all(16),
+        padding: EdgeInsets.fromLTRB(
+          compact ? 10 : 16,
+          compact ? 4 : 16,
+          compact ? 10 : 16,
+          compact ? 8 : 16,
+        ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             _buildContext(),
-            const SizedBox(height: 12),
+            SizedBox(height: compact ? 6 : 10),
             _buildSettings(),
-            const SizedBox(height: 16),
+            SizedBox(height: compact ? 6 : 16),
             ConstrainedBox(
-              constraints: const BoxConstraints(minHeight: 180),
+              constraints: BoxConstraints(minHeight: compact ? 96 : 180),
               child: _buildVocabularyArea(),
             ),
             if (_started && _answerRevealed) ...[
-              const SizedBox(height: 12),
+              SizedBox(height: compact ? 6 : 12),
               _buildResponses(),
             ],
             if (_message != null) ...[
-              const SizedBox(height: 10),
+              SizedBox(height: compact ? 6 : 10),
               Text(
                 _message!,
                 textAlign: TextAlign.center,
                 style: const TextStyle(fontWeight: FontWeight.w600),
               ),
             ],
-            const SizedBox(height: 10),
+            SizedBox(height: compact ? 6 : 10),
             if (_started)
               Align(
                 alignment: Alignment.center,
@@ -824,6 +914,7 @@ class _LearningSessionScreenState extends State<LearningSessionScreen> {
             ),
           ],
         ),
+      ),
       ),
     );
   }
@@ -851,9 +942,11 @@ class _LearningSessionScreenState extends State<LearningSessionScreen> {
       }
     }
 
+    final compact = MediaQuery.sizeOf(context).width < 600;
+
     return Card(
       child: Padding(
-        padding: const EdgeInsets.all(12),
+        padding: EdgeInsets.all(compact ? 9 : 12),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -861,12 +954,12 @@ class _LearningSessionScreenState extends State<LearningSessionScreen> {
               label,
               style: const TextStyle(fontWeight: FontWeight.bold),
             ),
-            const SizedBox(height: 4),
+            SizedBox(height: compact ? 2 : 4),
             Text(
               '${_studySet.name} (${_allItems.length} items)',
               style: const TextStyle(fontWeight: FontWeight.w600),
             ),
-            const SizedBox(height: 8),
+            SizedBox(height: compact ? 5 : 8),
             Wrap(
               spacing: 14,
               runSpacing: 4,
@@ -884,28 +977,45 @@ class _LearningSessionScreenState extends State<LearningSessionScreen> {
   }
 
   Widget _buildSettings() {
+    final compact = MediaQuery.sizeOf(context).width < 600;
+
     return Card(
       child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Wrap(
-          spacing: 20,
-          runSpacing: 10,
-          crossAxisAlignment: WrapCrossAlignment.center,
+        padding: EdgeInsets.all(compact ? 8 : 10),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text('Learning Mode'),
-            ChoiceChip(
-              label: const Text('Standard'),
-              selected: !_intensive,
-              onSelected: (_) => _switchMode(false),
+            const Text(
+              'Learning Mode',
+              style: TextStyle(fontWeight: FontWeight.w600),
             ),
-            ChoiceChip(
-              label: const Text('Intensive'),
-              selected: _intensive,
-              onSelected: (_) => _switchMode(true),
+            SizedBox(height: compact ? 4 : 6),
+            Wrap(
+              spacing: 8,
+              runSpacing: 6,
+              children: [
+                ChoiceChip(
+                  label: const Text('Standard'),
+                  selected: !_intensive,
+                  onSelected: (_) => _switchMode(false),
+                ),
+                ChoiceChip(
+                  label: const Text('Intensive'),
+                  selected: _intensive,
+                  onSelected: (_) => _switchMode(true),
+                ),
+              ],
             ),
-            _numberField('Learning Window', _learningWindowController),
-            if (_intensive)
-              _numberField('Minimum Interval', _minimumIntervalController),
+            SizedBox(height: compact ? 5 : 8),
+            Wrap(
+              spacing: compact ? 6 : 10,
+              runSpacing: compact ? 6 : 8,
+              children: [
+                _numberField('Learning Window', _learningWindowController),
+                if (_intensive)
+                  _numberField('Minimum Interval', _minimumIntervalController),
+              ],
+            ),
           ],
         ),
       ),
@@ -921,7 +1031,12 @@ class _LearningSessionScreenState extends State<LearningSessionScreen> {
       child: TextField(
         controller: controller,
         keyboardType: TextInputType.number,
-        onEditingComplete: _handleSettingEditComplete,
+        onTapOutside: (_) => _dismissKeyboard(),
+        textInputAction: TextInputAction.done,
+        onEditingComplete: () async {
+          FocusManager.instance.primaryFocus?.unfocus();
+          await _handleSettingEditComplete();
+        },
         decoration: InputDecoration(
           labelText: label,
           isDense: true,
@@ -965,20 +1080,20 @@ class _LearningSessionScreenState extends State<LearningSessionScreen> {
             style: const TextStyle(fontSize: 32, fontWeight: FontWeight.bold),
           ),
           if (_answerRevealed) ...[
-            const SizedBox(height: 24),
+            const SizedBox(height: 8),
             Text(
               item.targetExpression,
               textAlign: TextAlign.center,
-              style: const TextStyle(fontSize: 24),
+              style: const TextStyle(fontSize: 22),
             ),
-            const SizedBox(height: 10),
+            const SizedBox(height: 2),
             TextButton.icon(
               onPressed: _busy ? null : _editCurrentVocabulary,
               icon: const Icon(Icons.edit, size: 18),
               label: const Text('Edit Vocabulary'),
             ),
           ],
-          const SizedBox(height: 32),
+          const SizedBox(height: 8),
           if (!_answerRevealed)
             ElevatedButton(
               onPressed: _showAnswer,
@@ -993,9 +1108,11 @@ class _LearningSessionScreenState extends State<LearningSessionScreen> {
   }
 
   Widget _buildResponses() {
+    final compact = MediaQuery.sizeOf(context).width < 600;
+
     return Card(
       child: Padding(
-        padding: const EdgeInsets.all(12),
+        padding: EdgeInsets.all(compact ? 8 : 12),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
@@ -1003,39 +1120,89 @@ class _LearningSessionScreenState extends State<LearningSessionScreen> {
               _responseChip(
                 label: 'Done for now',
                 selected: _intensiveResponse != null,
-                onSelected: (_) {
+                onSelected: (_) async {
+                  if (_busy) return;
                   setState(() {
                     _intensiveResponse =
-                        _intensiveResponse ==
-                                IntensiveLearningResponse.doneForNow
-                            ? null
-                            : IntensiveLearningResponse.doneForNow;
+                        IntensiveLearningResponse.doneForNow;
                   });
+                  // Set aside and advance immediately; Next is not required.
+                  await _next();
                 },
+                width: compact ? double.infinity : null,
               )
             else ...[
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: [
-                  _standardChip('10 minutes', StandardLearningResponse.minutes10),
-                  _standardChip('30 minutes', StandardLearningResponse.minutes30),
-                  _standardChip('2 hours', StandardLearningResponse.hours2),
-                  _standardChip('2 days', StandardLearningResponse.days2),
-                  _standardChip('2 weeks', StandardLearningResponse.weeks2),
-                  _standardChip('2 months', StandardLearningResponse.months2),
-                ],
+              LayoutBuilder(
+                builder: (context, constraints) {
+                  final chipWidth = compact
+                      ? (constraints.maxWidth - 16) / 3
+                      : null;
+                  return Wrap(
+                    spacing: 8,
+                    runSpacing: compact ? 6 : 8,
+                    children: [
+                      _standardChip(
+                        '10 minutes',
+                        StandardLearningResponse.minutes10,
+                        width: chipWidth,
+                      ),
+                      _standardChip(
+                        '30 minutes',
+                        StandardLearningResponse.minutes30,
+                        width: chipWidth,
+                      ),
+                      _standardChip(
+                        '2 hours',
+                        StandardLearningResponse.hours2,
+                        width: chipWidth,
+                      ),
+                      _standardChip(
+                        '2 days',
+                        StandardLearningResponse.days2,
+                        width: chipWidth,
+                      ),
+                      _standardChip(
+                        '2 weeks',
+                        StandardLearningResponse.weeks2,
+                        width: chipWidth,
+                      ),
+                      _standardChip(
+                        '2 months',
+                        StandardLearningResponse.months2,
+                        width: chipWidth,
+                      ),
+                    ],
+                  );
+                },
               ),
-              const Divider(height: 20),
-              Wrap(
-                spacing: 8,
-                children: [
-                  _standardChip('Mastered', StandardLearningResponse.mastered),
-                  _standardChip('Deferred', StandardLearningResponse.deferred),
-                ],
+              SizedBox(height: compact ? 10 : 12),
+              const Divider(height: 1),
+              SizedBox(height: compact ? 8 : 12),
+              LayoutBuilder(
+                builder: (context, constraints) {
+                  final chipWidth = compact
+                      ? (constraints.maxWidth - 8) / 2
+                      : null;
+                  return Wrap(
+                    spacing: 8,
+                    runSpacing: compact ? 6 : 8,
+                    children: [
+                      _standardChip(
+                        'Mastered',
+                        StandardLearningResponse.mastered,
+                        width: chipWidth,
+                      ),
+                      _standardChip(
+                        'Deferred',
+                        StandardLearningResponse.deferred,
+                        width: chipWidth,
+                      ),
+                    ],
+                  );
+                },
               ),
             ],
-            const SizedBox(height: 12),
+            SizedBox(height: compact ? 8 : 12),
             Align(
               alignment: Alignment.center,
               child: SizedBox(
@@ -1048,7 +1215,7 @@ class _LearningSessionScreenState extends State<LearningSessionScreen> {
                       ? _next
                       : null,
                   child: const Padding(
-                    padding: EdgeInsets.symmetric(vertical: 10),
+                    padding: EdgeInsets.symmetric(vertical: 8),
                     child: Text('Next'),
                   ),
                 ),
@@ -1060,7 +1227,11 @@ class _LearningSessionScreenState extends State<LearningSessionScreen> {
     );
   }
 
-  Widget _standardChip(String label, StandardLearningResponse response) {
+  Widget _standardChip(
+    String label,
+    StandardLearningResponse response, {
+    double? width,
+  }) {
     return _responseChip(
       label: label,
       selected: _standardResponse == response,
@@ -1069,6 +1240,7 @@ class _LearningSessionScreenState extends State<LearningSessionScreen> {
           _standardResponse = response;
         });
       },
+      width: width,
     );
   }
 
@@ -1076,11 +1248,14 @@ class _LearningSessionScreenState extends State<LearningSessionScreen> {
     required String label,
     required bool selected,
     required ValueChanged<bool> onSelected,
+    double? width,
   }) {
-    return FilterChip(
+    final chip = FilterChip(
       label: Text(label),
       selected: selected,
       onSelected: onSelected,
     );
+
+    return width == null ? chip : SizedBox(width: width, child: chip);
   }
 }

@@ -4,6 +4,7 @@ import 'create_language_pair_screen.dart';
 import '../../domain/language_combination.dart';
 import '../../repository/sqlite_language_combination_repository.dart';
 import '../../domain/configuration.dart';
+import '../../repository/database_backup_service.dart';
 import '../../repository/sqlite_configuration_repository.dart';
 import '../../domain/study_set.dart';
 import '../../repository/sqlite_study_set_repository.dart';
@@ -29,6 +30,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
   final SQLiteStudySetRepository _studySetRepository =
       SQLiteStudySetRepository();
 
+  final DatabaseBackupService _databaseBackupService = DatabaseBackupService();
+
   List<StudySet> _studySets = [];
   StudySet? _selectedStudySet;
 
@@ -39,6 +42,15 @@ class _DashboardScreenState extends State<DashboardScreen> {
   void initState() {
     super.initState();
     _loadLanguageCombinations();
+    _runAutomaticBackupCheck();
+  }
+
+  Future<void> _runAutomaticBackupCheck() async {
+    try {
+      await _databaseBackupService.ensureAutomaticBackupIfNeeded();
+    } catch (e) {
+      debugPrint('Dashboard automatic backup check failed: $e');
+    }
   }
 
   Future<void> _loadLanguageCombinations() async {
@@ -145,9 +157,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text('Learning Center')),
-      body: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
+      body: SingleChildScrollView(
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             Card(
@@ -432,7 +445,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
             ), // Card
           ], // children of outer Column
         ), // outer Column
-      ), // outer Padding
+      ), // inner Padding
+      ), // SingleChildScrollView
     ); // Scaffold
   }
 }

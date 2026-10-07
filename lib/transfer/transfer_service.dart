@@ -25,10 +25,7 @@ class TransferService {
   final DatabaseManager _databaseManager = DatabaseManager.instance;
   final TransferJsonCodec _codec = TransferJsonCodec();
 
-  Future<void> exportStudySet({
-    required int studySetId,
-    required String filePath,
-  }) async {
+  Future<String> buildStudySetExportJson({required int studySetId}) async {
     final db = await _databaseManager.database;
 
     final studySetRows = await db.query(
@@ -93,13 +90,20 @@ class TransferService {
       vocabularyItems: vocabularyItems,
     );
 
+    return _codec.encodeStudySet(package);
+  }
+
+  Future<void> exportStudySet({
+    required int studySetId,
+    required String filePath,
+  }) async {
     await File(filePath).writeAsString(
-      _codec.encodeStudySet(package),
+      await buildStudySetExportJson(studySetId: studySetId),
       flush: true,
     );
   }
 
-  Future<void> exportEverything({required String filePath}) async {
+  Future<String> buildEverythingExportJson() async {
     final db = await _databaseManager.database;
 
     // A Database Transfer represents the complete environment. Include all
@@ -210,8 +214,12 @@ class TransferService {
       memberships: memberships,
     );
 
+    return _codec.encodeEverything(package);
+  }
+
+  Future<void> exportEverything({required String filePath}) async {
     await File(filePath).writeAsString(
-      _codec.encodeEverything(package),
+      await buildEverythingExportJson(),
       flush: true,
     );
   }
@@ -478,7 +486,7 @@ class TransferService {
 
       await txn.insert('Configuration', {
         'ConfigurationID': 1,
-        'CurrentLanguagePairID': null,
+        'CurrentLanguageCombinationID': null,
         'CurrentStudySetID': null,
       });
     });
