@@ -202,35 +202,6 @@ class _MobileManageMembershipScreenState
     final studySetName = _selectedStudySet!.name;
     final action = _action!;
 
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) {
-        final verb = action == _MembershipAction.add ? 'Add' : 'Remove';
-        final preposition = action == _MembershipAction.add ? 'to' : 'from';
-
-        return AlertDialog(
-          title: Text('$verb Vocabulary Items'),
-          content: Text(
-            '$verb $selectedCount vocabulary '
-            '${selectedCount == 1 ? 'item' : 'items'} $preposition '
-            '"$studySetName"?',
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(dialogContext, false),
-              child: const Text('Cancel'),
-            ),
-            FilledButton(
-              onPressed: () => Navigator.pop(dialogContext, true),
-              child: Text(verb),
-            ),
-          ],
-        );
-      },
-    );
-
-    if (confirmed != true || !mounted) return;
-
     setState(() {
       _applying = true;
     });
