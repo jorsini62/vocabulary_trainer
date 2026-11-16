@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../../domain/vocabulary_item.dart';
+import '../../utils/vocabulary_listing.dart';
 import '../../domain/learning_state.dart';
 import '../../domain/language_combination.dart';
 import '../../domain/study_set.dart';
@@ -410,20 +411,13 @@ class _VocabularyManagementScreenState
       _vocabularyItems.where((item) => _isSelected(item.id));
 
   List<VocabularyItem> get _visibleVocabularyItems {
-    final searchText = _searchController.text.trim().toLowerCase();
-
-    return _vocabularyItems.where((item) {
+    return filterVocabularyForListing(
+      _vocabularyItems,
+      _searchController.text,
+    ).where((item) {
       if (_currentStudySetFilter != null &&
           !_visibleVocabularyItemIds.contains(item.id)) {
         return false;
-      }
-
-      if (searchText.isNotEmpty) {
-        final source = item.sourceExpression.toLowerCase();
-        final target = item.targetExpression.toLowerCase();
-        if (!source.contains(searchText) && !target.contains(searchText)) {
-          return false;
-        }
       }
 
       if (_stateFilter != 'All States' &&

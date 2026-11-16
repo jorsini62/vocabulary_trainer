@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../domain/configuration.dart';
 import '../../domain/study_set.dart';
 import '../../domain/vocabulary_item.dart';
+import '../../utils/vocabulary_listing.dart';
 import '../../repository/sqlite_configuration_repository.dart';
 import '../../repository/sqlite_study_set_repository.dart';
 import '../../repository/sqlite_vocabulary_repository.dart';
@@ -114,16 +115,10 @@ class _MobileManageMembershipScreenState
   }
 
   List<VocabularyItem> get _filteredVocabularyItems {
-    final searchText = _searchController.text.trim().toLowerCase();
-
-    return _vocabularyItems.where((item) {
-      if (searchText.isNotEmpty) {
-        final matchesSearch =
-            item.sourceExpression.toLowerCase().contains(searchText) ||
-            item.targetExpression.toLowerCase().contains(searchText);
-        if (!matchesSearch) return false;
-      }
-
+    return filterVocabularyForListing(
+      _vocabularyItems,
+      _searchController.text,
+    ).where((item) {
       // Remove: only show items that already belong to the selected Study Set.
       // Add: show all items; those already in the Study Set are greyed out.
       if (_action == _MembershipAction.remove &&
