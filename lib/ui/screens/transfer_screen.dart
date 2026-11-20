@@ -9,6 +9,7 @@ import '../../domain/configuration.dart';
 import '../../domain/language_combination.dart';
 import '../../domain/study_set.dart';
 import '../../repository/database_backup_service.dart';
+import '../../repository/mobile_database_export.dart';
 import '../../repository/sqlite_configuration_repository.dart';
 import '../../repository/sqlite_language_combination_repository.dart';
 import '../../repository/sqlite_study_set_repository.dart';
@@ -446,78 +447,42 @@ class _TransferScreenState extends State<TransferScreen> {
     final isMobile = Platform.isIOS || Platform.isAndroid;
 
     await _runBusy(() async {
-      String? destinationPath;
-      String? temporaryPath;
-      Directory? temporaryDirectory;
-
-      try {
-        if (isMobile) {
-          temporaryDirectory = await Directory.systemTemp.createTemp(
-            'vocabulary_trainer_database_export_',
-          );
-
-          temporaryPath =
-              '${temporaryDirectory.path}/'
-              '${DatabaseBackupService.databaseFileName}';
-
-          await _databaseBackupService.exportDatabase(
-            destinationPath: temporaryPath,
-          );
-
-          final bytes = await File(temporaryPath).readAsBytes();
-
-          destinationPath = await FilePicker.platform.saveFile(
+      DatabaseBackupInfo? info;
+      if (isMobile) {
+        info = await exportMobileDatabase(
+          backupService: _databaseBackupService,
+          saveFile: (bytes) => FilePicker.platform.saveFile(
             dialogTitle: 'Export Database',
             fileName: DatabaseBackupService.databaseFileName,
             type: FileType.custom,
             allowedExtensions: const ['db'],
             bytes: bytes,
-          );
-        } else {
-          destinationPath = await FilePicker.platform.saveFile(
-            dialogTitle: 'Export Database',
-            fileName: DatabaseBackupService.databaseFileName,
-            type: FileType.custom,
-            allowedExtensions: const ['db'],
-          );
-
-          if (destinationPath == null) return;
-
-          await _databaseBackupService.exportDatabase(
-            destinationPath: destinationPath,
-          );
-        }
-
+          ),
+        );
+      } else {
+        final destinationPath = await FilePicker.platform.saveFile(
+          dialogTitle: 'Export Database',
+          fileName: DatabaseBackupService.databaseFileName,
+          type: FileType.custom,
+          allowedExtensions: const ['db'],
+        );
         if (destinationPath == null) return;
-
-        final info = await _databaseBackupService.validateDatabase(
-          destinationPath,
+        await _databaseBackupService.exportDatabase(
+          destinationPath: destinationPath,
         );
-
-        if (!mounted) return;
-
-        await _showMessage(
-          'Database export completed.\n\n'
-          'Vocabulary Items: ${info.vocabularyItemCount}\n'
-          'Study Sets: ${info.studySetCount}\n'
-          'Language Pairs: ${info.languageCombinationCount}\n'
-          'Memberships: ${info.membershipCount}',
-        );
-      } finally {
-        if (temporaryDirectory != null) {
-          try {
-            await temporaryDirectory.delete(recursive: true);
-          } catch (_) {
-            // Temporary cleanup failure does not invalidate the export.
-          }
-        } else if (temporaryPath != null) {
-          try {
-            await File(temporaryPath).delete();
-          } catch (_) {
-            // Temporary cleanup failure does not invalidate the export.
-          }
-        }
+        info = await _databaseBackupService.validateDatabase(destinationPath);
       }
+      if (info == null) return;
+
+      if (!mounted) return;
+
+      await _showMessage(
+        'Database export completed.\n\n'
+        'Vocabulary Items: ${info.vocabularyItemCount}\n'
+        'Study Sets: ${info.studySetCount}\n'
+        'Language Pairs: ${info.languageCombinationCount}\n'
+        'Memberships: ${info.membershipCount}',
+      );
     });
   }
 
