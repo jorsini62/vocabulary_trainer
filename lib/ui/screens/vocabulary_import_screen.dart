@@ -197,28 +197,26 @@ class _VocabularyImportScreenState extends State<VocabularyImportScreen> {
       _duplicateRecords.clear();
 
       for (final item in parsed.items) {
-        final vocabularyItemId =
-            await _vocabularyRepository.getVocabularyItemIdBySourceExpression(
-          _selectedLanguageCombination!.id!,
-          item.sourceExpression,
-        );
+        final vocabularyItemId = await _vocabularyRepository
+            .getVocabularyItemIdBySourceExpression(
+              _selectedLanguageCombination!.id!,
+              item.sourceExpression,
+            );
 
         if (vocabularyItemId == null) {
-          final newVocabularyItemId =
-              await _vocabularyRepository.insertVocabularyItem(
-            VocabularyItem(
-              languageCombinationId: _selectedLanguageCombination!.id!,
-              sourceExpression: item.sourceExpression,
-              targetExpression: item.targetExpression,
-              learningState: LearningState.newItem,
-              learningTimestamp: null,
-            ),
-          );
+          final newVocabularyItemId = await _vocabularyRepository
+              .insertVocabularyItem(
+                VocabularyItem(
+                  languageCombinationId: _selectedLanguageCombination!.id!,
+                  sourceExpression: item.sourceExpression,
+                  targetExpression: item.targetExpression,
+                  learningState: LearningState.newItem,
+                  learningTimestamp: null,
+                ),
+              );
 
-          final repositoryStudySet =
-              await _studySetRepository.getDefaultStudySet(
-            _selectedLanguageCombination!.id!,
-          );
+          final repositoryStudySet = await _studySetRepository
+              .getDefaultStudySet(_selectedLanguageCombination!.id!);
 
           if (repositoryStudySet == null) {
             throw Exception('Repository Study Set not found.');
@@ -229,10 +227,12 @@ class _VocabularyImportScreenState extends State<VocabularyImportScreen> {
             repositoryStudySet.id!,
           );
 
-          await _studySetRepository.addVocabularyItemToStudySet(
-            newVocabularyItemId,
-            _selectedStudySet!.id!,
-          );
+          if (_selectedStudySet!.id != repositoryStudySet.id) {
+            await _studySetRepository.addVocabularyItemToStudySet(
+              newVocabularyItemId,
+              _selectedStudySet!.id!,
+            );
+          }
 
           newItems++;
         } else {
@@ -242,12 +242,10 @@ class _VocabularyImportScreenState extends State<VocabularyImportScreen> {
           );
 
           if (existing != null) {
-            final destinationMemberships =
-                await _studySetRepository.getVocabularyItemIdsForStudySet(
-              _selectedStudySet!.id!,
-            );
-            final alreadyInDestinationStudySet =
-                destinationMemberships.contains(existing.id);
+            final destinationMemberships = await _studySetRepository
+                .getVocabularyItemIdsForStudySet(_selectedStudySet!.id!);
+            final alreadyInDestinationStudySet = destinationMemberships
+                .contains(existing.id);
 
             _duplicateRecords.add(
               _DuplicateRecord(
@@ -332,175 +330,51 @@ class _VocabularyImportScreenState extends State<VocabularyImportScreen> {
       return;
     }
 
-    final sourceController = TextEditingController(
-      text: duplicate.sourceExpression,
+    final result = await showDialog<_DuplicateResolutionResult>(
+      context: context,
+      builder: (dialogContext) {
+        return _DuplicateResolutionDialog(
+          duplicate: duplicate,
+        );
+      },
     );
-    final targetController = TextEditingController();
-    bool addToTargetStudySet = true;
 
-    try {
-      await showDialog<void>(
-        context: context,
-        builder: (dialogContext) {
-          return StatefulBuilder(
-            builder: (context, setDialogState) {
-              return AlertDialog(
-                title: const Text('Resolve Duplicate'),
-                content: SizedBox(
-                  width: 560,
-                  child: SingleChildScrollView(
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text(
-                          'Source',
-                          style: TextStyle(fontWeight: FontWeight.w600),
-                        ),
-                        const SizedBox(height: 4),
-                        Text(duplicate.sourceExpression),
-                        const SizedBox(height: 14),
-                        const Text(
-                          'Existing Target',
-                          style: TextStyle(fontWeight: FontWeight.w600),
-                        ),
-                        const SizedBox(height: 4),
-                        SelectableText(duplicate.existingTargetExpression),
-                        const SizedBox(height: 12),
-                        const Text(
-                          'Imported Target',
-                          style: TextStyle(fontWeight: FontWeight.w600),
-                        ),
-                        const SizedBox(height: 4),
-                        SelectableText(duplicate.importedTargetExpression),
-                        const SizedBox(height: 16),
-                        Row(
-                          children: [
-                            OutlinedButton(
-                              onPressed: () {
-                                setDialogState(() {
-                                  targetController.text =
-                                      duplicate.existingTargetExpression;
-                                });
-                              },
-                              child: const Text('Use Existing Target'),
-                            ),
-                            const SizedBox(width: 10),
-                            OutlinedButton(
-                              onPressed: () {
-                                setDialogState(() {
-                                  targetController.text =
-                                      duplicate.importedTargetExpression;
-                                });
-                              },
-                              child: const Text('Use Imported Target'),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 14),
-                        TextField(
-                          controller: sourceController,
-                          decoration:
-                              const InputDecoration(labelText: 'Source'),
-                        ),
-                        const SizedBox(height: 12),
-                        TextField(
-                          controller: targetController,
-                          decoration:
-                              const InputDecoration(labelText: 'Target'),
-                        ),
-                        const SizedBox(height: 12),
-                        CheckboxListTile(
-                          contentPadding: EdgeInsets.zero,
-                          dense: true,
-                          controlAffinity: ListTileControlAffinity.leading,
-                          value: addToTargetStudySet,
-                          onChanged: (value) {
-                            setDialogState(() {
-                              addToTargetStudySet = value ?? false;
-                            });
-                          },
-                          title: Text(
-                            'Add to ${duplicate.resolveStudySetName}',
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-                actions: [
-                  TextButton(
-                    onPressed: () => Navigator.pop(dialogContext),
-                    child: const Text('Cancel'),
-                  ),
-                  FilledButton(
-                    onPressed: () async {
-                      final source = sourceController.text.trim();
-                      final target = targetController.text.trim();
-                      if (source.isEmpty || target.isEmpty) {
-                        ScaffoldMessenger.of(dialogContext).showSnackBar(
-                          const SnackBar(
-                            content: Text(
-                              'Source and target expressions are required.',
-                            ),
-                          ),
-                        );
-                        return;
-                      }
+    if (result == null) return;
 
-                      await _vocabularyRepository.updateVocabularyExpressions(
-                        duplicate.vocabularyItemId,
-                        source,
-                        target,
-                      );
+    await _vocabularyRepository.updateVocabularyExpressions(
+      duplicate.vocabularyItemId,
+      result.source,
+      result.target,
+    );
 
-                      if (addToTargetStudySet) {
-                        await _studySetRepository.addVocabularyItemToStudySet(
-                          duplicate.vocabularyItemId,
-                          duplicate.resolveStudySetId,
-                        );
-                      }
-
-                      if (dialogContext.mounted) {
-                        Navigator.pop(dialogContext);
-                      }
-
-                      if (mounted) {
-                        setState(() {
-                          _duplicateRecords.removeWhere(
-                            (item) =>
-                                item.vocabularyItemId ==
-                                duplicate.vocabularyItemId,
-                          );
-                        });
-                      }
-                    },
-                    child: const Text('Save'),
-                  ),
-                ],
-              );
-            },
-          );
-        },
+    if (result.addToTargetStudySet &&
+        !duplicate.alreadyInDestinationStudySet) {
+      await _studySetRepository.addVocabularyItemToStudySet(
+        duplicate.vocabularyItemId,
+        duplicate.resolveStudySetId,
       );
-    } finally {
-      sourceController.dispose();
-      targetController.dispose();
     }
+
+    if (!mounted) return;
+
+    setState(() {
+      _duplicateRecords.removeWhere(
+        (item) => item.vocabularyItemId == duplicate.vocabularyItemId,
+      );
+    });
   }
 
   void _doNotAddExactDuplicateToStudySet(_DuplicateRecord duplicate) {
     setState(() {
       _duplicateRecords.removeWhere(
-        (item) => item.vocabularyItemId == duplicate.vocabularyItemId &&
+        (item) =>
+            item.vocabularyItemId == duplicate.vocabularyItemId &&
             item.resolveStudySetId == duplicate.resolveStudySetId,
       );
     });
   }
 
-  Future<void> _addExactDuplicateToStudySet(
-    _DuplicateRecord duplicate,
-  ) async {
+  Future<void> _addExactDuplicateToStudySet(_DuplicateRecord duplicate) async {
     await _studySetRepository.addVocabularyItemToStudySet(
       duplicate.vocabularyItemId,
       duplicate.resolveStudySetId,
@@ -566,11 +440,15 @@ class _VocabularyImportScreenState extends State<VocabularyImportScreen> {
                       runSpacing: 6,
                       children: [
                         TextButton(
-                          onPressed: () => _addExactDuplicateToStudySet(duplicate),
-                          child: Text('Add to ${duplicate.resolveStudySetName}'),
+                          onPressed: () =>
+                              _addExactDuplicateToStudySet(duplicate),
+                          child: Text(
+                            'Add to ${duplicate.resolveStudySetName}',
+                          ),
                         ),
                         TextButton(
-                          onPressed: () => _doNotAddExactDuplicateToStudySet(duplicate),
+                          onPressed: () =>
+                              _doNotAddExactDuplicateToStudySet(duplicate),
                           child: const Text('Do not add to Study Set'),
                         ),
                       ],
@@ -589,7 +467,6 @@ class _VocabularyImportScreenState extends State<VocabularyImportScreen> {
       ),
     );
   }
-
 
   @override
   Widget build(BuildContext context) {
@@ -611,8 +488,8 @@ class _VocabularyImportScreenState extends State<VocabularyImportScreen> {
               selectedStudySet: _selectedStudySet,
               onChanged: (studySet) async {
                 if (studySet == null) return;
-                final configuration =
-                    await _configurationRepository.getConfiguration();
+                final configuration = await _configurationRepository
+                    .getConfiguration();
                 if (configuration != null) {
                   await _configurationRepository.saveConfiguration(
                     Configuration(
@@ -695,6 +572,189 @@ class _VocabularyImportScreenState extends State<VocabularyImportScreen> {
           ],
         ),
       ),
+    );
+  }
+}
+
+
+class _DuplicateResolutionResult {
+  final String source;
+  final String target;
+  final bool addToTargetStudySet;
+
+  const _DuplicateResolutionResult({
+    required this.source,
+    required this.target,
+    required this.addToTargetStudySet,
+  });
+}
+
+class _DuplicateResolutionDialog extends StatefulWidget {
+  final _DuplicateRecord duplicate;
+
+  const _DuplicateResolutionDialog({
+    required this.duplicate,
+  });
+
+  @override
+  State<_DuplicateResolutionDialog> createState() =>
+      _DuplicateResolutionDialogState();
+}
+
+class _DuplicateResolutionDialogState
+    extends State<_DuplicateResolutionDialog> {
+  late final TextEditingController _sourceController;
+  late final TextEditingController _targetController;
+
+  bool _addToTargetStudySet = true;
+
+  @override
+  void initState() {
+    super.initState();
+
+    _sourceController = TextEditingController(
+      text: widget.duplicate.sourceExpression,
+    );
+    _targetController = TextEditingController();
+  }
+
+  @override
+  void dispose() {
+    _sourceController.dispose();
+    _targetController.dispose();
+    super.dispose();
+  }
+
+  void _save() {
+    final source = _sourceController.text.trim();
+    final target = _targetController.text.trim();
+
+    if (source.isEmpty || target.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Source and target expressions are required.',
+          ),
+        ),
+      );
+      return;
+    }
+
+    Navigator.pop(
+      context,
+      _DuplicateResolutionResult(
+        source: source,
+        target: target,
+        addToTargetStudySet: _addToTargetStudySet,
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final duplicate = widget.duplicate;
+
+    return AlertDialog(
+      title: const Text('Resolve Duplicate'),
+      content: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 560),
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Source',
+                style: TextStyle(fontWeight: FontWeight.w600),
+              ),
+              const SizedBox(height: 4),
+              Text(duplicate.sourceExpression),
+              const SizedBox(height: 14),
+              const Text(
+                'Existing Target',
+                style: TextStyle(fontWeight: FontWeight.w600),
+              ),
+              const SizedBox(height: 4),
+              SelectableText(duplicate.existingTargetExpression),
+              const SizedBox(height: 12),
+              const Text(
+                'Imported Target',
+                style: TextStyle(fontWeight: FontWeight.w600),
+              ),
+              const SizedBox(height: 4),
+              SelectableText(duplicate.importedTargetExpression),
+              const SizedBox(height: 16),
+              Wrap(
+                alignment: WrapAlignment.start,
+                spacing: 10,
+                runSpacing: 8,
+                children: [
+                  OutlinedButton(
+                    onPressed: () {
+                      setState(() {
+                        _targetController.text =
+                            duplicate.existingTargetExpression;
+                      });
+                    },
+                    child: const Text('Use Existing Target'),
+                  ),
+                  OutlinedButton(
+                    onPressed: () {
+                      setState(() {
+                        _targetController.text =
+                            duplicate.importedTargetExpression;
+                      });
+                    },
+                    child: const Text('Use Imported Target'),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 14),
+              TextField(
+                controller: _sourceController,
+                textInputAction: TextInputAction.next,
+                decoration: const InputDecoration(
+                  labelText: 'Source',
+                ),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: _targetController,
+                textInputAction: TextInputAction.done,
+                decoration: const InputDecoration(
+                  labelText: 'Target',
+                ),
+                onSubmitted: (_) => _save(),
+              ),
+              const SizedBox(height: 12),
+              CheckboxListTile(
+                contentPadding: EdgeInsets.zero,
+                dense: true,
+                controlAffinity: ListTileControlAffinity.leading,
+                value: _addToTargetStudySet,
+                onChanged: (value) {
+                  setState(() {
+                    _addToTargetStudySet = value ?? false;
+                  });
+                },
+                title: Text(
+                  'Add to ${duplicate.resolveStudySetName}',
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          onPressed: _save,
+          child: const Text('Save'),
+        ),
+      ],
     );
   }
 }

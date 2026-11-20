@@ -30,7 +30,7 @@ class ImportStudySetSelector extends StatelessWidget {
         const SizedBox(height: 8),
 
         SizedBox(
-          width: 360,
+          width: double.infinity,
           child: DropdownButton<StudySet>(
             value: selectedStudySet,
             isExpanded: true,

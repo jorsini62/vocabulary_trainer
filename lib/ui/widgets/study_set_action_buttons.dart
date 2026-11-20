@@ -19,8 +19,7 @@ class StudySetActionButtons extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Row(
-      mainAxisSize: MainAxisSize.min,
+    return Wrap(
       children: [
         ElevatedButton(
           onPressed: onNewStudySet,
